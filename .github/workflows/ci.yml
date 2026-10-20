@@ -1,0 +1,182 @@
+# Routine deterministic checks of the repository (CONCEPT.md, "Build and test"), on each push to main and each pull request.
+# It deploys nothing and reads no chain: publishing stays with pages.yml, run by hand. Jobs fetch pinned public
+# dependencies, but their checks do not depend on live RPC or Esplora responses.
+#
+# Not run in routine CI:
+#   - Network reads: relay.py and fork_proof.py build, testRealSepoliaStateProof (SEPOLIA_FORK_PROOF_RPC), every
+#     justfile recipe outside the stand-in tests below, and Esplora or Sepolia RPC reads of any kind.
+#   - SP1: the guest ELF (`just prover`, the pinned Docker image) and proving or executing it; test_testnet.py --real
+#     and test_bridge_guest.py --artifact, which need real proof artifacts that are not tracked.
+#   - test_testnet.py --full and test_bridge_guest.py --full: deterministic, but they compile the folded Groth16
+#     verifier for minutes each; run them by hand before changing the generator.
+#   - smplx (`simplex`) type-checking of the claim leaf: no smplx release builds on the SimplicityHL and
+#     rust-simplicity commits pinned in bootstrap-deps.py, which alone give the CMR (contracts/simplicity/README.md).
+#     The claim crate's tests above compile the leaf with the pinned toolchain.
+#   - The staged-artifact gates of pages.yml, which test exactly what a manual Pages run will upload.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Lets another workflow run these checks first; this workflow itself deploys nothing.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Called from Pages, github.workflow is the caller's name. This group differs from Pages' github-pages group.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: '1.95.0'
+
+jobs:
+  pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Every action is pinned to a commit
+        run: |
+          if grep -h -E '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+' .github/workflows/*.yml \
+            | grep -v -E 'uses:[[:space:]]+([^@[:space:]]+@[0-9a-f]{40}|\./[^[:space:]]+)([[:space:]]|$)'; then
+            echo "::error::The actions above are not pinned to a full commit SHA"
+            exit 1
+          fi
+      - name: Validate the workflow files
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca .github/workflows/*.yml
+      - name: Fetch and verify the pinned vendored dependencies
+        run: python3 tools/bootstrap-deps.py && python3 tools/bootstrap-deps.py --check
+
+  solidity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+        with:
+          version: v1.7.1
+      - name: Format, default profile, deployment profile
+        working-directory: contracts/solidity
+        run: forge fmt --check && forge test && FOUNDRY_PROFILE=deploy forge test
+
+  javascript:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui-react/package-lock.json
+      - name: Shared protocol vectors
+        run: node vectors/record.mjs --check
+      - name: Shared browser rules and CLI
+        run: npm --prefix ui test
+      # Typecheck, lint, tests and the production build, from the lockfile.
+      - name: React page
+        run: npm ci --prefix ui-react && npm --prefix ui-react run check
+      # The Ubuntu runner includes Google Chrome. The fixture build exercises desktop and narrow phone widths,
+      # every scenario, and both collapsed and expanded panels without writing screenshot artifacts.
+      - name: Responsive layout
+        run: npm --prefix ui-react run build:fixture && npm --prefix ui-react run check:layout
+
+  # The claim leaf, the harness, the assembly and wallet tools and their Python suites, which run the built tools.
+  rust-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal -c rustfmt && rustup default "$RUST_TOOLCHAIN"
+      # test_deploy_record.py and test_proof_path.py run justfile recipes against stand-ins.
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        with:
+          tool: just@1.45.0
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/simplicity/target
+            tools/sg16-harness/target
+            tools/sg16/bridge-guest/target
+            tools/sg16/liquid-testnet-wallet/target
+          key: rust-python-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('**/Cargo.lock', 'tools/bootstrap-deps.py') }}
+      - name: Fetch pinned dependencies
+        run: python3 tools/bootstrap-deps.py
+      - name: Rust formatting
+        run: |
+          for m in contracts/simplicity tools/sg16-harness tools/sg16/bridge-guest/testnet/tx \
+                   tools/sg16/bridge-guest/testnet/claim tools/sg16/liquid-testnet-wallet; do
+            cargo fmt --check --manifest-path "$m/Cargo.toml"
+          done
+          # A virtual workspace, so --all.
+          cargo fmt --all --check --manifest-path tools/sg16/bridge-guest/Cargo.toml
+      - name: Claim leaf
+        run: cargo test --release --locked --manifest-path contracts/simplicity/Cargo.toml
+      - name: Harness
+        run: cargo test --release --locked --manifest-path tools/sg16-harness/Cargo.toml && cargo build --release --locked --manifest-path tools/sg16-harness/Cargo.toml
+      # The core crate alone; the program crate is the pinned SP1 guest and builds only in the SP1 image.
+      - name: Guest core
+        run: |
+          cargo test --release --locked -p sg16-bridge-core --manifest-path tools/sg16/bridge-guest/Cargo.toml
+          cargo build --release --locked -p sg16-bridge-core --features cli --manifest-path tools/sg16/bridge-guest/Cargo.toml
+      - name: Transaction tool
+        env:
+          CARGO_TARGET_DIR: tools/sg16/bridge-guest/target/testnet-tx
+        run: cargo test --release --locked --manifest-path tools/sg16/bridge-guest/testnet/tx/Cargo.toml && cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/tx/Cargo.toml
+      - name: Claim tool
+        env:
+          CARGO_TARGET_DIR: tools/sg16/bridge-guest/target/testnet-claim
+        run: cargo test --release --locked --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml && cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml
+      - name: Fee wallet
+        run: cargo test --release --locked --manifest-path tools/sg16/liquid-testnet-wallet/Cargo.toml
+      - name: Relay and fork-proof tools
+        run: python3 tools/liquid-relay/test_liquid.py && python3 tools/liquid-relay/test_beacon.py
+      - name: SP1 key and update leaf
+        run: |
+          python3 tools/sg16/test_sp1_vk.py --version v6.1.0
+          python3 tools/sg16/test_sp1_v6_fixture.py
+          python3 tools/sg16/bridge-guest/test_bridge_guest.py
+      - name: Assembly tools
+        run: |
+          python3 tools/sg16/bridge-guest/testnet/test_testnet.py
+          python3 tools/sg16/bridge-guest/testnet/test_deploy_record.py
+          python3 tools/sg16/bridge-guest/testnet/test_proof_path.py
+      - name: Published covenant and bootstrap
+        run: |
+          python3 tools/sg16/bridge-guest/testnet/assemble.py verify-bootstrap \
+            --instance instances/sepolia-liquid-testnet/instance.json \
+            --manifest instances/sepolia-liquid-testnet/manifest.json \
+            --bootstrap-tx instances/sepolia-liquid-testnet/bootstrap.hex
+
+  # The prover host's unit tests (store decoding, reconstruction from the tracked inputs fixture). It links sp1-sdk
+  # and gnark's native FFI, built with the runner's Go; it neither builds the guest ELF nor proves.
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/sg16/bridge-guest/target
+          key: host-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('tools/sg16/bridge-guest/Cargo.lock', 'tools/bootstrap-deps.py') }}
+      - name: Fetch pinned dependencies
+        run: python3 tools/bootstrap-deps.py
+      - name: Prover host
+        run: cargo test --locked -p sg16-bridge-host --manifest-path tools/sg16/bridge-guest/Cargo.toml
