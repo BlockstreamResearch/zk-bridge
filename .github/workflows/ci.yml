@@ -181,4 +181,7 @@ jobs:
       - name: Install Protocol Buffers compiler
         run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
       - name: Prover host
+        env:
+          # The host tests use the pinned Helios ELFs; rebuilding that vendor's program needs cargo-prove.
+          SP1_SKIP_PROGRAM_BUILD: 'true'
         run: cargo test --locked -p sg16-bridge-host --manifest-path tools/sg16/bridge-guest/Cargo.toml
