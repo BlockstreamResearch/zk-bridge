@@ -43,11 +43,12 @@ jobs:
             const { LIVE } = await import("./ui/test/live-state.js");
             const record = process.env.RECORD;
             if (INSTANCE?.name !== record) {
-              throw new Error(`ui/config.js INSTANCE names ${INSTANCE?.name ?? "no instance"}, but the site publishes instances/${record}/`);
+              throw new Error("ui/config.js INSTANCE names " + (INSTANCE?.name ?? "no instance")
+                + ", but the site publishes instances/" + record + "/");
             }
             const live = Object.hasOwn(LIVE, record) ? LIVE[record] : undefined;
             if (!Number.isSafeInteger(live?.head) || live.head < 0 || !/^[0-9a-f]{64}$/.test(live.lc ?? "")) {
-              throw new Error(`ui/test/live-state.js pins no live { head, lc } for instances/${record}/`);
+              throw new Error("ui/test/live-state.js pins no live { head, lc } for instances/" + record + "/");
             }'
       # Reusable CI already ran the code and instance tests. Build the exact files this workflow will upload;
       # Vite also refuses an instance record that disagrees with ui/config.js.
