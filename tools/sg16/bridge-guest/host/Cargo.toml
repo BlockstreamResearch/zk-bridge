@@ -1,0 +1,27 @@
+[package]
+name = "sg16-bridge-host"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Build Sepolia inputs for, execute and Groth16-prove the sg16 bridge update guest"
+
+[[bin]]
+name = "sg16-bridge-host"
+path = "src/main.rs"
+
+[dependencies]
+sg16-bridge-core = { workspace = true }
+sp1-sdk = { workspace = true }
+sp1-recursion-gnark-ffi = { version = "=6.8.1", features = ["native"] }
+sp1-helios-primitives = { workspace = true }
+sp1-helios-script = { workspace = true }
+helios-consensus-core = { workspace = true }
+helios-ethereum = { workspace = true }
+serde_cbor = { workspace = true }
+serde_json = { workspace = true }
+alloy-primitives = { workspace = true }
+tree_hash = { workspace = true }
+anyhow = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }

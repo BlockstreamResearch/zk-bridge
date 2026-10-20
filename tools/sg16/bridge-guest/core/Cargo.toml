@@ -1,0 +1,19 @@
+[package]
+name = "sg16-bridge-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Public values of the sg16 bridge update guest, shared by guest, host and tests"
+
+[[bin]]
+name = "sg16-bridge-core"
+path = "src/bin/sg16-bridge-core.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = ["dep:serde_json"]
+
+[dependencies]
+sha2 = { workspace = true }
+serde_json = { workspace = true, optional = true }
