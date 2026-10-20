@@ -178,5 +178,7 @@ jobs:
           key: host-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('tools/sg16/bridge-guest/Cargo.lock', 'tools/bootstrap-deps.py') }}
       - name: Fetch pinned dependencies
         run: python3 tools/bootstrap-deps.py
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
       - name: Prover host
         run: cargo test --locked -p sg16-bridge-host --manifest-path tools/sg16/bridge-guest/Cargo.toml
