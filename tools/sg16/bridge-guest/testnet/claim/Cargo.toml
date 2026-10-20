@@ -1,0 +1,26 @@
+[package]
+name = "sg16-testnet-claim"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The claim leaf (contracts/simplicity/simf/claim.simf) beside the sg16 update leaf: CMR and claim transactions"
+
+# Its own workspace.  The claim leaf is SimplicityHL 0.7.2 over the vendored rust-simplicity 0.8.0, exactly as in
+# the claim crate (contracts/simplicity), whose [patch] is repeated so that simplicityhl and liquid-bridge-poc share
+# one simplicity-lang.  The produced spend is re-checked under stock simplicity-lang 0.9 by `sg16-testnet verify`.
+#   CARGO_TARGET_DIR=tools/sg16/bridge-guest/target/testnet-claim cargo build --release --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml
+[workspace]
+
+[[bin]]
+name = "sg16-testnet-claim"
+path = "src/main.rs"
+
+[dependencies]
+liquid-bridge-poc = { path = "../../../../../contracts/simplicity" }
+simplicityhl = { path = "../../../../../vendor/SimplicityHL" }
+simplicity-lang = { path = "../../../../../vendor/rust-simplicity" }
+serde_json = "1"
+hex = "0.4.3"
+
+[patch.crates-io]
+simplicity-lang = { path = "../../../../../vendor/rust-simplicity" }
