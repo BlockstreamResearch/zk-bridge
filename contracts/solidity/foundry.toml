@@ -1,0 +1,37 @@
+# The Sepolia escrow (contracts/BridgeEscrow.sol) and the contracts it imports. Run forge from this directory.
+#
+# Sources live under contracts/ on purpose: solc's metadata names every source by its path from this root, and the
+# runtime code ends in the hash of that metadata. The escrow's on-chain runtime code is checked against
+# contracts/BridgeEscrow.sol and its imports built with FOUNDRY_PROFILE=deploy; moving or editing any of them
+# gives other bytes.
+[profile.default]
+src = "contracts"
+test = "test"
+out = "out"
+cache_path = "cache"
+solc_version = "0.8.30"
+evm_version = "prague"
+script = "script"
+# Real signed Liquid testnet headers and Sepolia beacon data for the tests, the shared protocol vectors, and the
+# deployment script's parameter and result files, which stay in the ignored target/deploy/.
+fs_permissions = [
+    { access = "read", path = "./test/fixtures" },
+    { access = "read", path = "../../vectors" },
+    { access = "read-write", path = "../../target/deploy" },
+]
+# forge script records its transactions here, outside the tracked tree.
+broadcast = "../../target/deploy/broadcast"
+
+# FOUNDRY_PROFILE=deploy forge test: the exact optimizer used for the Sepolia escrow deployment.
+# The default unoptimized build exceeds EIP-170's runtime size limit; keep this profile explicit in
+# deployment records and compare the on-chain runtime code hash with its output.
+[profile.deploy]
+optimizer = true
+optimizer_runs = 1
+out = "out-deploy"
+cache_path = "cache-deploy"
+
+# The Sepolia RPC by name, for `forge script --rpc-url sepolia` and `cast ... --rpc-url sepolia`: the URL, which may
+# hold an API key, stays in the environment and off command lines.
+[rpc_endpoints]
+sepolia = "${SEPOLIA_EXECUTION_RPC}"

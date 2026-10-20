@@ -1,0 +1,22 @@
+{
+ "bridgeAsset": "0x097c43d4f52775b19edb9e26d536e4b84d8e370ab3abfc1223c0e8bf0d1df7b3",
+ "funding": "936978f0507f60873983ea03fa6d14f4fe9d632a1a16fe273cd033bbbcd46414:1",
+ "minConfirmations": 2,
+ "maxRelayLag": 86400,
+ "admission": {
+  "depositsEnd": 1795115088,
+  "unsupportedForkAt": "18446744073709551615",
+  "closer": "0xc474C5CE18E0A4aa4d2857d255e98EABcF4F80D2",
+  "maxForkCheckAge": 21600
+ },
+ "checkpoint": {
+  "epochLength": 1000,
+  "height": 2668999,
+  "hash": "0xf94e71dcf3e7d844454c43fbe2993b23df680178c51d3e14dd7683b472da5c4f",
+  "witnessScript": "0x51210217e403ddb181872c32a0cd468c710040b2f53d8cac69f18dad07985ee37e9a7151ae",
+  "keyY": [
+   "48507878430579378646482966776915908024658718362812035028888306808752120641090"
+  ],
+  "signblockscriptKeccak": "0x3445876b7281e084740f2ec2731ad9b00c50f08a5cfa363b4ada5141539f1c4f"
+ }
+}

@@ -1,0 +1,194 @@
+{
+  "about": [
+    "Golden vectors of the bridge protocol: every domain tag, and cases of every value two or more implementations derive from a tag. The Solidity, Rust, Python and JavaScript implementations each check their own code against this file; vectors/record.mjs is an independent implementation of the formulas below.",
+    "Hashed outputs start as null. `node vectors/record.mjs` fills each null once and never overwrites a recorded output; `node vectors/record.mjs --check` recomputes every output and fails on any difference or remaining null. A test that meets a null fails until the values are recorded and reviewed. Burn scripts involve no hash and are written by hand.",
+    "Changing any tag makes a new instance. Guest tags (lc, update, eth_config) change the guest ELF, its vkey and the update leaf; claim tags (state, claimed, token_blinding_a, token_blinding_b) change the claim leaf and the state address; escrow tags (deposit, burn) change the escrow bytecode. The manifest tag is the manifest schema the tools accept.",
+    "Hex is 0x-prefixed lowercase; integers are JSON numbers below 2^53."
+  ],
+  "tags": {
+    "state": "liquid-bridge-poc/state",
+    "claimed": "liquid-bridge-poc/claimed",
+    "lc": "liquid-bridge-poc/lc",
+    "update": "liquid-bridge-poc/update",
+    "eth_config": "liquid-bridge-poc/eth-config",
+    "deposit": "liquid-bridge-poc/deposit",
+    "burn": "liquid-bridge-poc/burn",
+    "token_blinding_a": "liquid-bridge-poc/token-blinding/A",
+    "token_blinding_b": "liquid-bridge-poc/token-blinding/B",
+    "manifest": "liquid-bridge-poc/manifest"
+  },
+  "formulas": {
+    "tag_sha256": "SHA256(tag), for the tags used hashed: state, claimed, lc, update, eth_config",
+    "lc": "SHA256(SHA256(tags.lc) || be64(slot) || header || committee)",
+    "state_hash": "SHA256(SHA256(tags.state) || lc || acc || claimed_root)",
+    "claimed_root": "A depth-32 SHA-256 sparse Merkle tree indexed by deposit number. An unset leaf is 32 zero bytes; a set leaf is SHA256(tags.claimed); each parent is SHA256(left || right).",
+    "token_blinding": "a = SHA256(tags.token_blinding_a || entropy), b = SHA256(tags.token_blinding_b || entropy), the tags not hashed",
+    "deposit_domain": "SHA256(tags.deposit || be256(chain_id) || escrow), the tag not hashed: abi.encodePacked(string, uint256, address)",
+    "burn_script": "6a 46 || tags.burn (22 bytes) || be64(chain_id) || escrow || recipient: 72 bytes"
+  },
+  "tag_sha256": [
+    {
+      "tag": "state",
+      "sha256": "0x1e6fac1cebe6db7f151758a21868cf52da3a9262d4a5bd2ddd1d266398d02e99"
+    },
+    {
+      "tag": "claimed",
+      "sha256": "0x8c9ae511394b261fa99272defbc7f4aad22b935244e462aaab82db33ba064604"
+    },
+    {
+      "tag": "lc",
+      "sha256": "0x27e8d4e293078b1ba9adabd33bb40578c604d2614723a37d06627075ff231f09"
+    },
+    {
+      "tag": "update",
+      "sha256": "0x2361b253950f10d51181b9169b143d875c00e4db13f3b77a44ccc1fd335501a5"
+    },
+    {
+      "tag": "eth_config",
+      "sha256": "0x980c9473580895d027a43468a19d6677cbb120e53e107fb03e09009c390a4aca"
+    }
+  ],
+  "lc": [
+    {
+      "slot": 283686952306183,
+      "header": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "committee": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "lc": "0xb587aafd19616d2ef1bda3c6c14cb60d0788e5d2c11b0c24712ddd3eacb25f1d"
+    },
+    {
+      "slot": 8192064,
+      "header": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "committee": "0x202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "lc": "0xff5ef6716d17ed513ab6426945771125f9ac47edfd9dabae4fb435814b17ef3d"
+    },
+    {
+      "slot": 1,
+      "header": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "committee": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "lc": "0x38781af638e1a3e7bf89904bcbe6b7b476d40cef3bd83ff456d45897c499d2db"
+    }
+  ],
+  "state_hash": [
+    {
+      "lc": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "acc": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "indices": [],
+      "claimed_root": "0xc6f67e02e6e4e1bdefb994c6098953f34636ba2b6ca20a4721d2b26a886722ff",
+      "state_hash": "0x70afd74166ef3c8db00bc5860781ae8fdb1633cce2a0e3b24f1af58ab802b20e"
+    },
+    {
+      "lc": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "acc": "0x202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "indices": [
+        0,
+        2
+      ],
+      "claimed_root": "0x67695eac1c98c1b19b35a9ea185ed77ad96f44244cf1f84b95e62239c7077c15",
+      "state_hash": "0xcd23d120f829ed89b1a485c1a8ca7b1feb2a42ad7a5ebbc3760fc8d644925bb1"
+    },
+    {
+      "lc": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "acc": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "indices": [
+        1,
+        0,
+        3
+      ],
+      "claimed_root": "0x4a9b889cd79f80a7d1f75825f61ef0676f4485ad12614de67bbfd1ac3c2c9fc4",
+      "state_hash": "0xce581f8970f64f3af986d9764680a89b42da5a706d5d164854b8829fbe3b133e"
+    }
+  ],
+  "claimed_root": [
+    {
+      "indices": [],
+      "root": "0xc6f67e02e6e4e1bdefb994c6098953f34636ba2b6ca20a4721d2b26a886722ff"
+    },
+    {
+      "indices": [
+        0
+      ],
+      "root": "0xe27e9850e01ee271f09da240900b359c277c54c90171cd48b0d399f14914359e"
+    },
+    {
+      "indices": [
+        2
+      ],
+      "root": "0x5838db5e730e5d59072c7e836cfd68df3f549dd42ca776ffb83344d41d440dd9"
+    },
+    {
+      "indices": [
+        0,
+        2
+      ],
+      "root": "0x67695eac1c98c1b19b35a9ea185ed77ad96f44244cf1f84b95e62239c7077c15"
+    },
+    {
+      "indices": [
+        1,
+        0,
+        3
+      ],
+      "root": "0x4a9b889cd79f80a7d1f75825f61ef0676f4485ad12614de67bbfd1ac3c2c9fc4"
+    },
+    {
+      "indices": [
+        4294967295
+      ],
+      "root": "0x6a41c9b3bd5e3b633787a67b61dcda15fda4914451eb88ec4506e2d7df5085a3"
+    }
+  ],
+  "token_blinding": [
+    {
+      "entropy": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "a": "0xd232dfd8483e1db4608d7285d12eb9439c2abc64db26602e4429a0aa2bbd5fe9",
+      "b": "0xd2c782b62745d232b7f91fc4d60d2c3c9c70afd8f1e4951e9ee3167b2ea204d0"
+    },
+    {
+      "entropy": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "a": "0x4a0cba2e6e41370c1d0e258bd3ec2bf7dda38fff4791e4be1a0eba5260b6a1e1",
+      "b": "0xb761b5895235b6530c0e6d055d37b869e4254d844257411b63653aac6367149d"
+    },
+    {
+      "entropy": "0xe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+      "a": "0x8479726e24263d93b8735562ad329fe1724f53b391077bee18657a517931a5bb",
+      "b": "0xd018d3209f13c216a5f4fbb3f64fd37392f728a62fa095b9feec0eae66d25827"
+    }
+  ],
+  "deposit_domain": [
+    {
+      "chain_id": 11155111,
+      "escrow": "0x1111111111111111111111111111111111111111",
+      "domain": "0x4b131d20a5305be8010c19954f0937579dc0eea2cadc0a03b8e33be3126eb6b4"
+    },
+    {
+      "chain_id": 1,
+      "escrow": "0x00112233445566778899aabbccddeeff00010203",
+      "domain": "0x4c683d3e62535c5f35898734f2efb93af5e6675b92f93d9314fdb931fe1e6ec9"
+    },
+    {
+      "chain_id": 4538991236898928,
+      "escrow": "0xfedcba9876543210fedcba9876543210fedcba98",
+      "domain": "0x954148e626250f7e27ae38434b791ec327e4bf66c2d72b6ae423e1587fce58b5"
+    }
+  ],
+  "burn_script": [
+    {
+      "chain_id": 11155111,
+      "escrow": "0x1111111111111111111111111111111111111111",
+      "recipient": "0x2222222222222222222222222222222222222222",
+      "script": "0x6a466c69717569642d6272696467652d706f632f6275726e0000000000aa36a711111111111111111111111111111111111111112222222222222222222222222222222222222222"
+    },
+    {
+      "chain_id": 1,
+      "escrow": "0x00112233445566778899aabbccddeeff00010203",
+      "recipient": "0xfedcba9876543210fedcba9876543210fedcba98",
+      "script": "0x6a466c69717569642d6272696467652d706f632f6275726e000000000000000100112233445566778899aabbccddeeff00010203fedcba9876543210fedcba9876543210fedcba98"
+    },
+    {
+      "chain_id": 4538991236898928,
+      "escrow": "0xfedcba9876543210fedcba9876543210fedcba98",
+      "recipient": "0x00112233445566778899aabbccddeeff00010203",
+      "script": "0x6a466c69717569642d6272696467652d706f632f6275726e0010203040506070fedcba9876543210fedcba9876543210fedcba9800112233445566778899aabbccddeeff00010203"
+    }
+  ]
+}

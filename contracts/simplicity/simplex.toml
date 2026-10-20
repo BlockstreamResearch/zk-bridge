@@ -1,0 +1,11 @@
+# smplx (https://github.com/BlockstreamResearch/smplx) project file. Run `simplex build` from this directory to
+# type-check simf/claim.simf with smplx's SimplicityHL and write its Rust bindings under the ignored target/.
+#
+# smplx does not produce the leaf's CMR, and no smplx release builds on the SimplicityHL commit that does: the claim
+# crate (`claim::source`, then `compile`) through `cargo test` here and the Liquid claim tool, over the commits
+# tools/bootstrap-deps.py pins. README.md, "One toolchain for the CMR", has the details.
+
+[build]
+src_dir = "simf"
+simf_files = ["claim.simf"]
+out_dir = "target/simplex"

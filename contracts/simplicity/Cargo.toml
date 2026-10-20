@@ -1,0 +1,20 @@
+[package]
+name = "liquid-bridge-poc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+simplicityhl = { path = "../../vendor/SimplicityHL" }
+simplicity-lang = { path = "../../vendor/rust-simplicity" }
+sha2 = "0.10.9"
+hex = "0.4.3"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[patch.crates-io]
+simplicity-lang = { path = "../../vendor/rust-simplicity" }
+
+[profile.release]
+debug = true

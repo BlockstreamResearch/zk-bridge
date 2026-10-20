@@ -1,0 +1,199 @@
+// Claim leaf of the Liquid bridge state.
+//
+// The bridge state UTXO is P2TR(NUMS, {{update leaf, claim leaf}, state leaf}), all three leaves at leaf version
+// 0xbe. The state leaf's "CMR" is state_hash(lc, acc, claimed_root), so it commits data that no program can spend.
+// The control block of either covenant leaf has the path (other covenant leaf, state leaf), so
+// tappath_hash = SHA256(sibling || state leaf) authenticates the old state.
+//
+// A claim mints deposit `index` of the escrow accumulator committed in the state, once. It needs no SNARK and no
+// Ethereum data beyond that accumulator: the accumulator is append-only, so a deposit stays provable against every
+// later one. A deposit's recipient is SHA256 of the Liquid scriptPubKey to pay (BridgeDeposits.recipientOf), and
+// output 1 must be the output with exactly that script.
+//
+// claimed_root is the root of the claimed tree: a depth-32 SHA-256 sparse Merkle tree with one slot per deposit
+// index, the escrow tree's shape. Slot i is 0 until deposit i is minted and CLAIMED_LEAF after. A claim opens slot
+// `index` as 0 under the old root and commits, in the successor, the root with that slot set along the same branch.
+// So deposits can be claimed in any order, and each at most once: claiming a set slot again would need a second
+// opening of that slot, a SHA-256 collision. The root depends only on the set of claimed indices.
+//
+// Transaction: inputs (0 state, 1 fee); outputs (0 successor state, 1 explicit mint, 2 explicit fee).
+// Witness: old state (LC, ACC, CLAIMED_ROOT), the update leaf hash (SIBLING), the accumulator opening (TREE_ROOT,
+// COUNT), the deposit's INDEX, recipient script hash (RECIPIENT) and 32-sibling branch (PATH), and the 32-sibling
+// branch of slot INDEX in the claimed tree (CLAIMED_PATH).
+//
+// Only stock Elements jets are used. The upper-case parameters are policy constants; the claim crate
+// (src/claim.rs `source`) replaces each with its literal before compiling.
+
+fn and(x: bool, y: bool) -> bool { match x { true => y, false => false, } }
+
+fn no_issuance(i: u32) {
+    match unwrap(jet::issuance(i)) { None => (), Some(_: bool) => panic!(), }
+}
+
+fn sha_pair(left: u256, right: u256) -> u256 {
+    let ctx: Ctx8 = jet::sha_256_ctx_8_init();
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_32(ctx, left);
+    jet::sha_256_ctx_8_finalize(jet::sha_256_ctx_8_add_32(ctx, right))
+}
+
+// SHA256(STATE_TAG || lc || acc || claimed_root), 128 bytes.
+fn state_hash(lc: u256, acc: u256, claimed_root: u256) -> u256 {
+    let ctx: Ctx8 = jet::sha_256_ctx_8_init();
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_32(ctx, param::STATE_TAG);
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_32(ctx, lc);
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_32(ctx, acc);
+    jet::sha_256_ctx_8_finalize(jet::sha_256_ctx_8_add_32(ctx, claimed_root))
+}
+
+fn state_leaf(lc: u256, acc: u256, claimed_root: u256) -> u256 {
+    jet::build_tapleaf_simplicity(state_hash(lc, acc, claimed_root))
+}
+
+// SHA256(0x51 0x20 || key): the script hash of a P2TR output.
+fn p2tr_script_hash(key: u256) -> u256 {
+    let ctx: Ctx8 = jet::sha_256_ctx_8_init();
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_2(ctx, 0x5120);
+    jet::sha_256_ctx_8_finalize(jet::sha_256_ctx_8_add_32(ctx, key))
+}
+
+// The spent output's taproot path is exactly (sibling, old state leaf). Consensus has already checked the control
+// block against the spent output key, so this binds the witness state to the input.
+fn check_old_state(sibling: u256, old_leaf: u256) {
+    assert!(jet::eq_256(jet::tappath_hash(), sha_pair(sibling, old_leaf)));
+}
+
+// Output 0 keeps both covenant leaves and the NUMS internal key and commits the new state leaf.
+fn check_successor_script(sibling: u256, new_leaf: u256) {
+    let covenants: u256 = jet::build_tapbranch(jet::tapleaf_hash(), sibling);
+    let key: u256 = jet::build_taptweak(param::NUMS, jet::build_tapbranch(covenants, new_leaf));
+    assert!(jet::eq_256(unwrap(jet::output_script_hash(0)), p2tr_script_hash(key)));
+}
+
+fn is_asset_commitment(a: Asset1, parity: u1, x: u256) -> bool {
+    match a {
+        Left((p, px): (u1, u256)) => and(jet::eq_1(p, parity), jet::eq_256(px, x)),
+        Right(_: u256) => false,
+    }
+}
+
+fn is_value_commitment(v: Amount1, parity: u1, x: u256) -> bool {
+    match v {
+        Left((p, px): (u1, u256)) => and(jet::eq_1(p, parity), jet::eq_256(px, x)),
+        Right(_: u64) => false,
+    }
+}
+
+// The one reissuance token moves to output 0. Its asset commitment alternates between two constants with public
+// blinding factors A and B, and its value commitment stays the constant 1*H(token), so the value blinding is minus
+// the asset blinding. Anyone can therefore build the next reissuance nonce, surjection proof and range proof; nobody
+// can hide the token behind a private blinding.
+fn check_token_successor() {
+    let current: Asset1 = jet::current_asset();
+    let (parity, x): (u1, u256) = match is_asset_commitment(current, param::TOKEN_A_PARITY, param::TOKEN_A_X) {
+        true => (param::TOKEN_B_PARITY, param::TOKEN_B_X),
+        false => {
+            assert!(is_asset_commitment(current, param::TOKEN_B_PARITY, param::TOKEN_B_X));
+            (param::TOKEN_A_PARITY, param::TOKEN_A_X)
+        },
+    };
+    let (asset, amount): (Asset1, Amount1) = unwrap(jet::output_amount(0));
+    assert!(is_asset_commitment(asset, parity, x));
+    assert!(is_value_commitment(amount, param::TOKEN_VALUE_PARITY, param::TOKEN_VALUE_X));
+}
+
+// SHA256(DOMAIN || be64(index) || be64(units) || recipient), as BridgeDeposits.leafOf.
+fn deposit_leaf(index: u64, units: u64, recipient: u256) -> u256 {
+    let ctx: Ctx8 = jet::sha_256_ctx_8_init();
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_32(ctx, param::DEPOSIT_DOMAIN);
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_8(ctx, index);
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_8(ctx, units);
+    jet::sha_256_ctx_8_finalize(jet::sha_256_ctx_8_add_32(ctx, recipient))
+}
+
+// SHA256(treeRoot || be64(count)), the escrow's storage slot 0.
+fn accumulator(root: u256, count: u64) -> u256 {
+    let ctx: Ctx8 = jet::sha_256_ctx_8_init();
+    let ctx: Ctx8 = jet::sha_256_ctx_8_add_32(ctx, root);
+    jet::sha_256_ctx_8_finalize(jet::sha_256_ctx_8_add_8(ctx, count))
+}
+
+// One tree level: the low bit of the remaining index is 0 when the running node is the left child.
+fn merkle_step(sibling: u256, acc: (u256, u64)) -> (u256, u64) {
+    let (node, index): (u256, u64) = acc;
+    let (parent, bit): (u64, u1) = jet::full_right_shift_64_1(0, index);
+    let next: u256 = match jet::eq_1(bit, 0) {
+        true => sha_pair(node, sibling),
+        false => sha_pair(sibling, node),
+    };
+    (next, parent)
+}
+
+// One claimed-tree level, by the same rule: the slot before the claim (unset) and after it (set) climb past the
+// same sibling, so the two roots differ in that slot alone.
+fn claimed_step(sibling: u256, acc: (u256, u256, u64)) -> (u256, u256, u64) {
+    let (unset, set, index): (u256, u256, u64) = acc;
+    let (parent, bit): (u64, u1) = jet::full_right_shift_64_1(0, index);
+    match jet::eq_1(bit, 0) {
+        true => (sha_pair(unset, sibling), sha_pair(set, sibling), parent),
+        false => (sha_pair(sibling, unset), sha_pair(sibling, set), parent),
+    }
+}
+
+fn main() {
+    assert!(jet::eq_32(jet::current_index(), 0));
+    assert!(jet::eq_32(jet::num_inputs(), 2));
+    assert!(jet::eq_32(jet::num_outputs(), 3));
+    no_issuance(1);
+
+    let lc: u256 = witness::LC;
+    let acc: u256 = witness::ACC;
+    let claimed_root: u256 = witness::CLAIMED_ROOT;
+    let sibling: u256 = witness::SIBLING;
+    check_old_state(sibling, state_leaf(lc, acc, claimed_root));
+
+    // Open the accumulator; deposit `index` must exist.
+    let root: u256 = witness::TREE_ROOT;
+    let count: u64 = witness::COUNT;
+    assert!(jet::eq_256(accumulator(root, count), acc));
+    let index: u64 = witness::INDEX;
+    assert!(jet::lt_64(index, count));
+
+    // Input 0 reissues the bridge asset with an explicit amount and creates no token. The entropy is Some only for
+    // a reissuance, so a new issuance (which could mint tokens) fails here. For a reissuance the token amount below
+    // is always explicit 0, as Elements consensus rejects inflation keys on reissuances; that check is defence in
+    // depth.
+    assert!(jet::eq_256(unwrap(jet::current_reissuance_entropy()), param::ENTROPY));
+    let units: u64 = unwrap_right::<(u1, u256)>(unwrap(jet::current_issuance_asset_amount()));
+    assert!(jet::eq_64(unwrap_right::<(u1, u256)>(unwrap(jet::current_issuance_token_amount())), 0));
+
+    // The leaf recomputed from this transaction is deposit `index` of the opened tree. Consuming all 32 bits of the
+    // index bounds it below 2^32, the depth of both trees.
+    let recipient: u256 = witness::RECIPIENT;
+    let path: [u256; 32] = witness::PATH;
+    let (computed, rest): (u256, u64) = array_fold::<merkle_step, 32>(path, (deposit_leaf(index, units, recipient), index));
+    assert!(jet::eq_64(rest, 0));
+    assert!(jet::eq_256(computed, root));
+
+    // Slot `index` is unset under the old claimed root; the new root is the same tree with that slot set.
+    let claimed_path: [u256; 32] = witness::CLAIMED_PATH;
+    let unset: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    let (old_root, new_root, claimed_rest): (u256, u256, u64) =
+        array_fold::<claimed_step, 32>(claimed_path, (unset, param::CLAIMED_LEAF, index));
+    assert!(jet::eq_64(claimed_rest, 0));
+    assert!(jet::eq_256(old_root, claimed_root));
+
+    // Output 1 pays exactly those units of the bridge asset to the script the deposit committed.
+    let (mint_asset, mint_amount): (Asset1, Amount1) = unwrap(jet::output_amount(1));
+    assert!(jet::eq_256(unwrap_right::<(u1, u256)>(mint_asset), param::BRIDGE_ASSET));
+    assert!(jet::eq_64(unwrap_right::<(u1, u256)>(mint_amount), units));
+    assert!(jet::eq_256(unwrap(jet::output_script_hash(1)), recipient));
+
+    // Output 2 is an explicit fee in the fee asset: a fee in any other asset (the bridge asset, say) would consume
+    // the claimer's own funds and is not Liquid's policy fee asset.
+    assert!(unwrap(jet::output_is_fee(2)));
+    assert!(jet::eq_256(unwrap_right::<(u1, u256)>(unwrap(jet::output_asset(2))), param::FEE_ASSET));
+
+    // Output 0 is the successor: same light client and accumulator, slot `index` claimed.
+    check_successor_script(sibling, state_leaf(lc, acc, new_root));
+    check_token_successor();
+}
