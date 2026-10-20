@@ -7,10 +7,17 @@
 // the escrow, whose answer comes through an RPC. It reads every other bridge parameter (asset, federation,
 // confirmations, deposit admission) from the escrow, once its code hash matches.
 //
-// No instance is published until its deployment record is reviewed.
+// The deployed instance is at instances/sepolia-liquid-testnet/. The published-record test checks every value below
+// against its instance, manifest and confirmed bootstrap transaction.
 import { depositRecipient, ethAddress } from './lib/bridge.js';
 
-export const INSTANCE = null;
+export const INSTANCE = parseInstance({
+  name: 'sepolia-liquid-testnet',
+  escrow: '0xa575fca96f5079e50ffc568c44a65598a35ee2a8',
+  codeHash: '16e9013879ca9176cd66f8ae0d1d1670b2e61a0566d9e5a024181a23abd4b71d',
+  bootstrap: '530d7b1dda19256e8708f154d525d4c0baa0337f9899faa9ceeeb73a8dbc8370',
+  state: 'tex1ppan2m2xagngp520prm829r8r6l5jwqwe3xye9tw9g0dpkjg4pccsvm0vnk',
+});
 
 export const DEFAULTS = Object.freeze({
   chainId: 11155111n,

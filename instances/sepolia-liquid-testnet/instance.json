@@ -1,0 +1,20 @@
+{
+ "name": "sepolia-liquid-testnet",
+ "ESCROW": "a575fca96f5079e50ffc568c44a65598a35ee2a8",
+ "ESCROW_CODE_HASH": "16e9013879ca9176cd66f8ae0d1d1670b2e61a0566d9e5a024181a23abd4b71d",
+ "ESCROW_DEPLOY_BLOCK": 11957564,
+ "DEPOSIT_DOMAIN": "0ddb071bb90e30a52032cc69e37093d24756355eaf466a3dfc9f66f980d4f083",
+ "GUEST_ELF_SHA256": "51e486a3dd022dfd75a798a793cbca738324d558ce0ace8affde8a85e27aeabd",
+ "PROGRAM_VKEY": "002a725145d840f50eb445417d03eeb9070ffee307180d2d0e6eba0d77354962",
+ "ANCHOR": {
+  "slot": 11399456,
+  "header": "984fc1d4ad0ef090ce32428fcfec5f16280ea21f8bf9e4c1035c90525783228e",
+  "committee": "e0a6ede4f641fa171bd6cdca25356f98b48039fbe01454685ea4b234ace4fac9",
+  "lc": "1750bae895c9e7e1754564d6d06cca3705ca28528f3be2c58081d21c4baf9637"
+ },
+ "sources": {
+  "ESCROW": "Sepolia transaction 0xb5288a0cd1276bfd415f007bfb0ce05ce985585e3ea6d70296325de903a584fd in block 11957564; its runtime code hash equals a local FOUNDRY_PROFILE=deploy build simulated from the same deployer nonce; its checkpoint and depositsEnd, read at that block, are the simulated parameters",
+  "GUEST": "just prover (SP1 6.8.1, Docker image v6.8.1) from this checkout; sg16-bridge-host vkey",
+  "ANCHOR": "sg16-bridge-host anchor of inputs from a light-client bootstrap at slot 11399456"
+ }
+}
