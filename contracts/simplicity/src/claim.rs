@@ -359,28 +359,41 @@ fn point(serialized: &[u8]) -> (String, String) {
     ((serialized[0] & 1).to_string(), lit(&serialized[1..]))
 }
 
-/// The claim leaf's source for `p`: simf/claim.simf with every parameter replaced by its literal. A manifest
-/// records the SHA-256 of this text (`claim_leaf.source_sha256`) beside the CMR it compiles to.
-pub fn source(p: &Params) -> String {
+/// The claim leaf as written, simf/claim.simf, with its `param::` names.
+pub const TEMPLATE: &str = include_str!("../simf/claim.simf");
+
+/// The claim leaf's parameters for `p`: each `param::NAME` of `TEMPLATE` with the SimplicityHL literal it stands
+/// for. No name is a prefix of another, so each replaces only itself.
+pub fn parameters(p: &Params) -> [(&'static str, String); 13] {
     let (a_parity, a_x) = point(&serialize(&p.token_asset(0)));
     let (b_parity, b_x) = point(&serialize(&p.token_asset(1)));
     let (v_parity, v_x) = point(&serialize(&p.token_value()));
     let asset = serialize(&Asset::Explicit(p.asset()));
     let fee_asset = serialize(&Asset::Explicit(p.fee_asset));
-    let src = include_str!("../simf/claim.simf")
-        .replace("param::STATE_TAG", &lit(&state_tag()))
-        .replace("param::NUMS", &format!("0x{NUMS}"))
-        .replace("param::TOKEN_A_PARITY", &a_parity)
-        .replace("param::TOKEN_A_X", &a_x)
-        .replace("param::TOKEN_B_PARITY", &b_parity)
-        .replace("param::TOKEN_B_X", &b_x)
-        .replace("param::TOKEN_VALUE_PARITY", &v_parity)
-        .replace("param::TOKEN_VALUE_X", &v_x)
-        .replace("param::ENTROPY", &lit(&p.entropy))
-        .replace("param::BRIDGE_ASSET", &lit(&asset[1..]))
-        .replace("param::FEE_ASSET", &lit(&fee_asset[1..]))
-        .replace("param::DEPOSIT_DOMAIN", &lit(&p.deposit_domain))
-        .replace("param::CLAIMED_LEAF", &lit(&claimed_leaf()));
+    [
+        ("STATE_TAG", lit(&state_tag())),
+        ("NUMS", format!("0x{NUMS}")),
+        ("TOKEN_A_PARITY", a_parity),
+        ("TOKEN_A_X", a_x),
+        ("TOKEN_B_PARITY", b_parity),
+        ("TOKEN_B_X", b_x),
+        ("TOKEN_VALUE_PARITY", v_parity),
+        ("TOKEN_VALUE_X", v_x),
+        ("ENTROPY", lit(&p.entropy)),
+        ("BRIDGE_ASSET", lit(&asset[1..])),
+        ("FEE_ASSET", lit(&fee_asset[1..])),
+        ("DEPOSIT_DOMAIN", lit(&p.deposit_domain)),
+        ("CLAIMED_LEAF", lit(&claimed_leaf())),
+    ]
+}
+
+/// The claim leaf's source for `p`: `TEMPLATE` with every parameter replaced by its literal. A manifest records
+/// the SHA-256 of this text (`claim_leaf.source_sha256`) beside the CMR it compiles to.
+pub fn source(p: &Params) -> String {
+    let mut src = TEMPLATE.to_owned();
+    for (name, literal) in parameters(p) {
+        src = src.replace(&format!("param::{name}"), &literal);
+    }
     assert!(!src.contains("param::"), "unreplaced parameter");
     src
 }

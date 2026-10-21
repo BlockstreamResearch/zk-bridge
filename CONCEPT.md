@@ -33,7 +33,7 @@ This is research code: nothing here has a formal cryptographic audit, and Liquid
 - [Foundry](https://getfoundry.sh) (`forge`).
 - Python 3.9 or later (`str.removeprefix`), standard library only.
 - Node.js 22 or later and npm, for the page, its tests and the vectors.
-- Optionally [smplx](https://github.com/BlockstreamResearch/smplx) (`simplex`), to type-check the claim leaf with its toolchain.
+- Optionally [smplx](https://github.com/BlockstreamResearch/smplx) 0.0.12 (`simplex`), to build the claim leaf's bindings. The claim crate checks its CMR with smplx's compiler; see [the smplx workflow](contracts/simplicity/README.md#smplx).
 - Only for the SP1 guest: the SP1 toolchain 6.8.1 (`sp1up`) and Docker. See [`tools/sg16/README.md`](tools/sg16/README.md).
 
 ## Build and test

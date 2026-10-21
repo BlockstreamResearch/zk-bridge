@@ -469,7 +469,8 @@ dependencies = [
  "serde_json",
  "sha2",
  "simplicity-lang",
- "simplicityhl",
+ "simplicityhl 0.7.2",
+ "simplicityhl 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -751,6 +752,24 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "simplicity-lang",
+]
+
+[[package]]
+name = "simplicityhl"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae77168fa3367d234b11bb3999cbd6e04d7180db0b9e11f83de259528e3b23d1"
+dependencies = [
+ "ariadne",
+ "base64",
+ "chumsky",
+ "clap",
+ "either",
+ "getrandom",
+ "itertools",
+ "miniscript",
+ "semver",
  "simplicity-lang",
 ]
 

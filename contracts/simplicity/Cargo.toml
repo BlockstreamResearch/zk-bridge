@@ -12,6 +12,9 @@ serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 serde_json = "1"
+# The SimplicityHL release smplx 0.0.12 locks, for tests/smplx.rs. Its simplicity-lang 0.8.0 is the vendored one
+# through the patch below, whose sources are those of the 0.8.0 release.
+smplx-simplicityhl = { package = "simplicityhl", version = "=0.7.2", default-features = false }
 
 [patch.crates-io]
 simplicity-lang = { path = "../../vendor/rust-simplicity" }

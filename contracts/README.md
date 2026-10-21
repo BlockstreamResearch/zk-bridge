@@ -3,7 +3,7 @@
 | Project | Contents |
 |---|---|
 | [`solidity/`](solidity/) | Foundry project (`solidity/foundry.toml`): the Sepolia escrow and the contracts it imports, their tests and fixtures |
-| [`simplicity/`](simplicity/README.md) | smplx project (`simplicity/simplex.toml`): the Liquid claim leaf, the crate that compiles it and its tests |
+| [`simplicity/`](simplicity/README.md) | smplx project (`simplicity/Simplex.toml`): the Liquid claim leaf, the crate that compiles it and its tests |
 
 The Liquid update leaf is generated per instance by [`tools/sg16`](../tools/sg16/README.md) and published with the instance record. Each contract's header states its rules and assumptions; this note records the design decisions behind them and what has to hold before a public transfer.
 

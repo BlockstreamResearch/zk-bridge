@@ -2,6 +2,9 @@
 //! the state, in any order and each exactly once. The update leaf is not run here; it stands beside the claim leaf
 //! by CMR.
 
+mod common;
+
+use common::{manifest_params, published_manifests};
 use liquid_bridge_poc::claim::*;
 use liquid_bridge_poc::crypto::sha;
 
@@ -57,26 +60,6 @@ fn at(tree: &DepositTree, claimed: &ClaimedTree) -> State {
     }
 }
 
-/// The manifests of the published instance records, instances/<name>/manifest.json; none before the first
-/// deployment.
-fn published_manifests() -> Vec<(String, serde_json::Value)> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../instances");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return vec![];
-    };
-    let mut out = vec![];
-    for entry in entries {
-        let path = entry.unwrap().path().join("manifest.json");
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            out.push((
-                path.display().to_string(),
-                serde_json::from_str(&text).unwrap(),
-            ));
-        }
-    }
-    out
-}
-
 /// A published instance's claim leaf: the source text built from its manifest's parameters hashes to the
 /// manifest's `claim_leaf.source_sha256` and compiles to its `claim_leaf.cmr`, the leaf its state tree commits.
 #[test]
@@ -86,21 +69,7 @@ fn published_claim_leaves_are_reproduced() {
         println!("no published instance record under instances/: nothing to reproduce");
     }
     for (record, m) in manifests {
-        let word = |v: &serde_json::Value| -> [u8; 32] {
-            let s = v.as_str().unwrap();
-            hex::decode(s.strip_prefix("0x").unwrap_or(s))
-                .unwrap()
-                .try_into()
-                .unwrap()
-        };
-        let hc = &m["harness_config"];
-        let p = Params {
-            liquid_genesis: word(&hc["genesis"]),
-            entropy: word(&hc["entropy"]),
-            fee_asset: simplicity::elements::AssetId::from_byte_array(word(&hc["fee_asset"])),
-            deposit_domain: word(&m["sepolia"]["deposit_domain"]),
-            token_blinding: [word(&hc["abf_a"]), word(&hc["abf_b"])],
-        };
+        let p = manifest_params(&m);
         check_params(&p).unwrap();
         let leaf = &m["claim_leaf"];
         assert_eq!(
@@ -110,7 +79,7 @@ fn published_claim_leaves_are_reproduced() {
         );
         let cmr = compile(&p).unwrap().commit().cmr();
         assert_eq!(
-            hex::encode(cmr.as_ref().to_vec()),
+            hex::encode(cmr.as_ref()),
             leaf["cmr"].as_str().unwrap(),
             "{record}: CMR"
         );

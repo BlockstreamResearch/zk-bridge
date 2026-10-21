@@ -46,9 +46,9 @@ the Solidity fixtures.
 A port of any of these to Rust must carry their vectors with it unchanged: `vectors/protocol.json`, the real
 transactions and headers in the Solidity and UI fixtures, the Sepolia finality update and fork proof, the SP1 key
 and proof fixtures, and the claim leaf's CMR and source hash. One Simplicity toolchain is authoritative for every
-CMR: the SimplicityHL and rust-simplicity commits pinned in `bootstrap-deps.py`. smplx (`simplex`) only
-type-checks the claim leaf; no smplx release builds on those commits
-([contracts/simplicity/README.md](../contracts/simplicity/README.md#one-toolchain-for-the-cmr)).
+CMR: the SimplicityHL and rust-simplicity commits pinned in `bootstrap-deps.py`. The claim crate also checks the
+same leaf's CMR with smplx's SimplicityHL release. `simplex build` writes bindings, but is not by itself a
+complete compile check ([contracts/simplicity/README.md](../contracts/simplicity/README.md#smplx)).
 
 ## Tests
 

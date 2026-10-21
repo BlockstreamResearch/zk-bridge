@@ -1,0 +1,9 @@
+# smplx (https://github.com/BlockstreamResearch/smplx) project file. smplx looks for this exact name, Simplex.toml.
+# `simplex build` in this directory writes Rust bindings for simf/claim.simf under the ignored target/simplex/.
+# smplx 0.0.12 type-checks the leaf there; 0.0.9 does not. The leaf's CMR comes from the claim crate (`cargo test`);
+# tests/smplx.rs shows that smplx compiles the same one. README.md, "smplx", has the commands and their limits.
+
+[build]
+src_dir = "simf"
+simf_files = ["claim.simf"]
+out_dir = "target/simplex"
