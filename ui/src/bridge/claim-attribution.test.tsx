@@ -55,6 +55,28 @@ async function activity(journeys: DepositJourney[], live: LiveState) {
 }
 
 describe('Activity attributes a claim only to the deposit whose index it paid', () => {
+  it('offers a claim for a deposit covered by a confirmed update, while a newer deposit waits for proof', async () => {
+    const live = walked([]);
+    live.update = txid('b');
+    live.state.execBlock = 8_999_000;
+    const { row } = await activity([deposit(3), deposit(4, { block: 8_999_001 })], live);
+    expect(row(3)).toMatchObject({ status: 'proven', proofTxid: txid('b') });
+    expect(row(3).claimTxid).toBeUndefined();
+    expect(row(4).status).toBe('finalized');
+    expect(row(4).proofTxid).toBeUndefined();
+    expect(screen.getByText('Ready to claim')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Claim with Humid' })).toBeVisible();
+    expect(screen.getByText('just claim-unsigned <Humid fee txid> <output number> 3')).toBeVisible();
+    expect(document.querySelector(`a[href$="/tx/${txid('b')}"]`)).not.toBeNull();
+  });
+
+  it('does not infer proof coverage from an unconfirmed update', async () => {
+    const pending = walked([]);
+    pending.moving = txid('b');
+    const { row } = await activity([deposit(3, { status: 'proven', proofTxid: txid('b') })], pending);
+    expect(row(3)).toMatchObject({ status: 'finalized', proofTxid: undefined });
+  });
+
   it('shows identical deposits claimed out of order each with its own claim, and the one unclaimed as waiting', async () => {
     // Deposit 2 claimed, then deposit 0, its claim not confirmed yet; deposit 1, older than 2 and identical, waits.
     const { row } = await activity([deposit(2), deposit(1), deposit(0)], walked([claim(2, 2)], claim(0, 0, false)));

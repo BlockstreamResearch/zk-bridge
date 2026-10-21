@@ -19,6 +19,8 @@ export interface BridgeStateWords {
   acc: string;
   claimedRoot: string | null;
   claimed: number[] | null;
+  /** Sepolia execution block proven by the last confirmed update, absent before an update. */
+  execBlock?: number;
 }
 
 /** A claim the walk followed: the deposit index its output 0 commits, or null if not attributed, and its output 1. */

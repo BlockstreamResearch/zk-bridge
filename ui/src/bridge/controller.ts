@@ -447,9 +447,15 @@ export class BridgeController {
     if (!instance || j.escrow?.toLowerCase() !== instance.escrow) return;
     // A claim is this deposit's only if the walk shows it paid this deposit's index (lib/claim.js depositClaims):
     // deposits to one script may share their units, and claims may pay them in any order.
-    const found = depositClaims([j], await this.claimsOnLiquid()).get(j);
+    const live = await this.claimsOnLiquid();
+    const found = depositClaims([j], live).get(j);
+    // The confirmed update proves the escrow's complete state at this execution block. A later deposit still
+    // needs another update. A mempool update never advances live.state, and a claim remains a separate transaction.
+    const proven = live.update !== null && j.index != null && j.block !== undefined
+      && live.state.execBlock !== undefined && j.block <= live.state.execBlock;
     const patch: Partial<DepositJourney> = !found
-      ? { status: 'finalized', claimTxid: undefined, claimVout: undefined, claimIndex: undefined, claimWhy: undefined }
+      ? { status: proven ? 'proven' : 'finalized', proofTxid: proven ? live.update! : undefined,
+        claimTxid: undefined, claimVout: undefined, claimIndex: undefined, claimWhy: undefined }
       : found.status === 'unresolved'
         ? { status: 'unresolved', claimTxid: undefined, claimVout: undefined, claimIndex: undefined, claimWhy: found.why }
         : { status: found.status, claimTxid: found.txid, claimVout: found.vout, claimIndex: j.index!, claimWhy: undefined };

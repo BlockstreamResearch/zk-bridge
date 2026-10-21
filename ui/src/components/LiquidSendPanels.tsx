@@ -225,7 +225,8 @@ export function ClaimPanel({ panelRef, fileRef }: { panelRef: RefObject<HTMLDeta
         <li>the deposit proven and not yet claimed: <code className="mono">just status</code> recovers the live state and says which deposits are;</li>
         <li>an open fee coin in Humid: for example, send 0.00002 tL-BTC (2,000 sats) from Humid to its own address under Receive, then Unconfidential, and wait
           for it to confirm. A new claim may need a different fee. It spends the whole coin as its fee, and this page sends none above 0.0005 tL-BTC;</li>
-        <li>the claim built against that coin, unsigned: run <code className="mono">just claim-unsigned &lt;Humid fee txid&gt; &lt;output number&gt;</code>. It reads
+        <li>the claim built against that coin, unsigned: run <code className="mono">just claim-unsigned &lt;Humid fee txid&gt; &lt;output number&gt; &lt;deposit number&gt;</code>.
+          Use the deposit number shown in Activity or by <code className="mono">just status</code>, for example <code className="mono">3</code> for deposit #3. It reads
           the deposits from a Sepolia RPC, writes <code className="mono">claim.hex</code> without signing or sending it, and prints where it wrote it. The
           {' '}<ExtLink href={JUST_STEPS}>short operator commands</ExtLink> cover it.</li>
       </>}

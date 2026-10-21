@@ -10,7 +10,7 @@ import type { LiveState, UpdatePlan } from '@bridge/core/lib/update.js';
  * A deposit is 'claiming' or 'claimed' only once a claim is shown to have paid its index (lib/claim.js
  * depositClaims); 'unresolved' while a claim the page could not attribute may have paid it.
  */
-export type DepositStatus = 'submitted' | 'mined' | 'finalized' | 'claiming' | 'claimed' | 'unresolved' | 'failed';
+export type DepositStatus = 'submitted' | 'mined' | 'finalized' | 'proven' | 'claiming' | 'claimed' | 'unresolved' | 'failed';
 export type RedeemStatus = 'burned' | 'relay' | 'ready' | 'submitted' | 'paid';
 
 interface JourneyBase {
@@ -35,6 +35,8 @@ export interface DepositJourney extends JourneyBase {
   block?: number;
   index?: string | null;
   finalizedAt?: number;
+  /** Confirmed Liquid update whose proven execution block includes this deposit. */
+  proofTxid?: string;
   claimTxid?: string;
   claimVout?: number;
   /** The deposit index the claim `claimTxid` was shown to pay. Without it, the claim must be checked again. */

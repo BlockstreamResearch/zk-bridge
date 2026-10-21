@@ -47,8 +47,8 @@ const STORES = [storeAt(9_000_000, 'anchor'), storeAt(9_010_112, 'first'), store
 /** The state at store `s`, with a made-up accumulator and nothing claimed. */
 const stateAt = (s, label) => ({ head: s.head, lc: s.lc, acc: word(`acc ${label}`), claimedRoot: EMPTY_CLAIMED_ROOT, claimed: [] });
 const anchor = stateAt(STORES[0], 'anchor');
-const state = stateAt(STORES[1], 'first');
-const next = stateAt(STORES[2], 'second');
+const state = { ...stateAt(STORES[1], 'first'), execBlock: 9_000_000 };
+const next = { ...stateAt(STORES[2], 'second'), execBlock: 9_000_000 };
 /** `s` with the deposits `indices` claimed, in that order. */
 const withClaimed = (s, indices) => ({ ...s, claimed: indices, claimedRoot: claimedRoot(indices) });
 
@@ -489,7 +489,7 @@ test('a claim no single index explains is unattributed, and so is every later cl
 });
 
 test('an update after claims reveals the claimed root, checked against its spent state leaf', async () => {
-  const later = (root) => ({ head: next.head + 64, lc: word('lc later'), acc: word('acc later'), claimedRoot: root });
+  const later = (root) => ({ head: next.head + 64, lc: word('lc later'), acc: word('acc later'), claimedRoot: root, execBlock: 9_000_000 });
   // After an unattributed claim, the update reveals the root, but not the set.
   const odd = claiming(UPDATE_TXID, next, 5, { commits: [5, 6] });
   const root = claimedRoot([5, 6]);

@@ -129,17 +129,22 @@ function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) 
   const s = useBridge();
   const c = useController();
   const order = ['submitted', 'mined', 'finalized', 'claiming', 'claimed'];
-  const at = j.status === 'unresolved' ? 3 : order.indexOf(j.status);
+  const at = j.status === 'unresolved' || j.status === 'proven' ? 3 : order.indexOf(j.status);
   const failed = j.status === 'failed';
   const eth = DEFAULTS.ethExplorer;
   const liq = DEFAULTS.liquidExplorer;
   const steps: [StepState, ReactNode][] = [
     [stepState(at >= 1, at === 0, failed), <>Sent on Sepolia <ExtLink href={`${eth}/tx/${j.txHash}`}>{short(j.txHash)}</ExtLink></>],
-    [stepState(at >= 2, at === 1), `Mined${j.block ? ` in block ${j.block.toLocaleString('en')}` : ''}${j.index != null ? `, deposit #${j.index}` : ''}; waiting for Ethereum finality`],
-    [stepState(at >= 3, at === 2), 'Final on Ethereum; waiting for someone, in practice the instance\'s operator, to prove it to Liquid and claim it'],
+    [stepState(at >= 2, at === 1), `Mined${j.block ? ` in block ${j.block.toLocaleString('en')}` : ''}${j.index != null ? `, deposit #${j.index}` : ''}; ${at >= 2 ? 'final on Ethereum' : 'waiting for Ethereum finality'}`],
+    [stepState(at >= 3, at === 2), j.proofTxid
+      ? <>Proven on Liquid <ExtLink href={`${liq}/tx/${j.proofTxid}`}>{short(j.proofTxid)}</ExtLink></>
+      : j.status === 'unresolved' ? 'Final on Ethereum; checking the claim on Liquid'
+        : at >= 3 ? 'Final on Ethereum; proof accepted on Liquid'
+        : 'Final on Ethereum; waiting for a proof update on Liquid. Anyone can submit it.'],
     [stepState(at >= 4, at === 3), j.claimTxid
       ? <>Claimed on Liquid <ExtLink href={`${liq}/tx/${j.claimTxid}`}>{short(j.claimTxid)}</ExtLink>{j.status === 'claiming' ? ' (confirming)' : ''}</>
-      : j.status === 'unresolved' ? 'Claim on Liquid: not known whether a claim paid this deposit' : 'Claim on Liquid'],
+      : j.status === 'unresolved' ? 'Claim on Liquid: not known whether a claim paid this deposit'
+        : j.status === 'proven' ? 'Ready to claim on Liquid' : 'Claim on Liquid'],
   ];
   const wait = depositWait(j, s.now);
   const title = `${formatUnits(BigInt(j.wei), 18)} ETH → ${j.address ? short(j.address, 8) : `script ${short(j.script, 8)}`}`;
@@ -149,12 +154,17 @@ function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) 
         {j.error && <p className="error">{j.error}</p>}
         {j.lastError && <StaleNote j={j} />}
         {j.status === 'unresolved' && <UnresolvedNote j={j} />}
+        {j.status === 'proven' && <p className="help">The proof update is confirmed. Only the claim remains, and anyone can send it.
+          Build it with <code className="mono">just claim-unsigned &lt;Humid fee txid&gt; &lt;output number&gt; {j.index}</code>, then load
+          {' '}<code className="mono">target/takeover/claim.hex</code> using Claim with Humid below. No new proof is needed.
+          Once sent, the claim usually confirms in the next Liquid block, about a minute.</p>}
         {wait && <WaitNote j={j} wait={wait} />}
       </>}
       actions={<>
         {j.status === 'finalized' && <ExtLink className="btn btn-primary" href={TAKEOVER}>Prove &amp; claim: guide ↗</ExtLink>}
         {/* Once an update has proven the deposit, its claim can go through Humid with no fee key (the claim panel). */}
         {j.status === 'finalized' && <Button onClick={onClaim}>Have a proven claim? Send with Humid</Button>}
+        {j.status === 'proven' && <Button variant="primary" onClick={onClaim}>Claim with Humid</Button>}
         <Button variant="ghost" onClick={() => c.removeJourney(j.id)}>Remove from this list</Button>
       </>} />
   );

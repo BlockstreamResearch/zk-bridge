@@ -498,7 +498,10 @@ function spendOf(raw, outpoint, state, tree) {
   if (state.claimedRoot !== null && f.claimedRoot !== state.claimedRoot) throw new Error(`${at} does not keep the claimed root`);
   opens({ ...state, claimedRoot: f.claimedRoot });
   if (f.head <= state.head) throw new Error(`${at} does not move the light-client head forward`);
-  return { txid, kind, claim: null, state: { head: f.head, lc: f.lc, acc: f.acc, claimedRoot: f.claimedRoot, claimed: state.claimed } };
+  return {
+    txid, kind, claim: null,
+    state: { head: f.head, lc: f.lc, acc: f.acc, claimedRoot: f.claimedRoot, claimed: state.claimed, execBlock: f.execBlock },
+  };
 }
 
 /**

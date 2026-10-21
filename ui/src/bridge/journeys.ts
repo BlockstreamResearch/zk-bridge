@@ -34,7 +34,8 @@ const isOrAbsent = (v: unknown, shape: RegExp) => v === undefined || v === null 
  * txids, addresses and the burn's output. Storage is anyone's to edit, so a journey that does not is not this page's.
  */
 function wellFormed(j: Journey): boolean {
-  if (j.kind === 'deposit') return is(j.txHash, ETH_TX) && isOrAbsent(j.address, LIQUID_ADDRESS) && isOrAbsent(j.claimTxid, LIQUID_TX);
+  if (j.kind === 'deposit') return is(j.txHash, ETH_TX) && isOrAbsent(j.address, LIQUID_ADDRESS)
+    && isOrAbsent(j.claimTxid, LIQUID_TX) && isOrAbsent(j.proofTxid, LIQUID_TX);
   return is(j.burnTxid, LIQUID_TX) && Number.isSafeInteger(j.vout) && j.vout >= 0
     && is(j.recipient, ETH_ADDRESS) && isOrAbsent(j.payee, ETH_ADDRESS) && isOrAbsent(j.txHash, ETH_TX);
 }
@@ -60,6 +61,7 @@ const LABELS: Record<string, [string, Tone]> = {
   submitted: ['Sent', 'pending'],
   mined: ['Mined', 'progress'],
   finalized: ['Final', 'progress'],
+  proven: ['Ready to claim', 'progress'],
   claiming: ['Claiming', 'progress'],
   claimed: ['Claimed', 'done'],
   unresolved: ['Unresolved', 'pending'],
