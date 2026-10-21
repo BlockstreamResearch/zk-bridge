@@ -70,6 +70,19 @@ const fieldBytes = (from, to, claimed = from.claimedRoot) => concat(
   hexToBytes(word(`exec ${to.head}`)), hexToBytes(claimed), bigToBytes(9_000_000n, 8), bigToBytes(BigInt(to.head), 8),
 );
 
+/**
+ * An update leaf's whole witness around `fields`, as the leaf lays it out: made-up proof values, the fields, then
+ * three 512-byte padding blocks, the second of which holds `padded` from bit 4,099 on, so off every byte boundary.
+ */
+function paddedWitness(fields, padded) {
+  const bitsOf = (bytes) => Array.from(bytes, (b) => [7, 6, 5, 4, 3, 2, 1, 0].map((s) => (b >> s) & 1)).flat();
+  const bits = bitsOf(filler('padding', 3 * 512));
+  bits.splice(4_099, 8 * padded.length, ...bitsOf(padded));
+  const blocks = new Uint8Array(3 * 512);
+  bits.forEach((bit, k) => { blocks[k >> 3] |= bit << (7 - (k & 7)); });
+  return concat(filler('proof values', 900), fields, blocks);
+}
+
 /** A control block of the state tree: leaf version 0xbe, NUMS, the other covenant leaf, and the spent state leaf. */
 const control = (sibling, leaf) => cat([0xbe], hex(NUMS), sibling, leaf);
 
@@ -82,12 +95,12 @@ const FEE = transaction({
 /**
  * An update from `from` to `to` spending output 0 of `prev`: input 0 with the update leaf's witness, input 1 a fee
  * coin, signed unless `signed` is false; output 0 the state output of `to`, output 1 the fee. `claimed` is the claimed
- * root its fields carry, and `leaf` the state leaf its control block opens.
+ * root its fields carry, `leaf` the state leaf its control block opens, and `wrap` the leaf witness around the fields.
  */
-function updateTx(prev, from, to, { fee = { txid: word(`fee ${to.head}`), vout: 0 }, signed = true, claimed, leaf = stateLeaf(from) } = {}) {
+function updateTx(prev, from, to, { fee = { txid: word(`fee ${to.head}`), vout: 0 }, signed = true, claimed, leaf = stateLeaf(from), wrap = (f) => f } = {}) {
   return transaction({
     inputs: [
-      { txid: prev, vout: 0, witness: [fieldBytes(from, to, claimed), PROGRAM, UPDATE_CMR, control(SIBLING, leaf)] },
+      { txid: prev, vout: 0, witness: [wrap(fieldBytes(from, to, claimed)), PROGRAM, UPDATE_CMR, control(SIBLING, leaf)] },
       { ...fee, witness: signed ? signedWitness(`fee ${to.head}`) : [] },
     ],
     outputs: [blinded(TOKEN, TOKEN_VALUE, stateScript(TREE, to), `state ${to.head}`), explicit(LBTC, 12_000n, EMPTY)],
@@ -180,11 +193,18 @@ test('an update\'s witness gives the state it moves to, its claimed root carried
     lc: next.lc, acc: next.acc, execRoot: word(`exec ${next.head}`), claimedRoot: state.claimedRoot,
     execBlock: 9_000_000, head: next.head,
   });
-  // Found wherever the fields start in the witness, but only once.
+  // Found wherever the fields start in the witness.
   const at = concat(new Uint8Array(7), fieldBytes(state, next), new Uint8Array(5));
   assert.deepEqual(updateFields(at, state, SIBLING), f);
-  assert.throws(() => updateFields(concat(fieldBytes(state, next), fieldBytes(state, next)), state, SIBLING), /2 times, not once/);
-  assert.throws(() => updateFields(fieldBytes(state, next), { ...state, acc: word('other') }, SIBLING), /0 times, not once/);
+  assert.deepEqual(updateFields(paddedWitness(fieldBytes(state, next), EMPTY), state, SIBLING), f);
+  assert.throws(() => updateFields(fieldBytes(state, next), { ...state, acc: word('other') }, SIBLING), /does not hold/);
+});
+
+test('padding that repeats the spent state\'s fields, even with another successor, does not move the fields read', () => {
+  const f = updateFields(fieldBytes(state, next), state, SIBLING);
+  const forged = { ...next, lc: word('lc forged'), acc: word('acc forged'), head: next.head + 1 };
+  assert.deepEqual(updateFields(paddedWitness(fieldBytes(state, next), fieldBytes(state, next)), state, SIBLING), f);
+  assert.deepEqual(updateFields(paddedWitness(fieldBytes(state, next), fieldBytes(state, forged)), state, SIBLING), f);
 });
 
 test('the PSET finalizes only the state input and asks Humid to sign the fee input', () => {
@@ -407,6 +427,17 @@ test('the state walk follows both updates and rejects a substituted state, leaf 
   await assert.rejects(walk(before(), initial({ claimed_root: claimedRoot([0]) })), /has claimed deposits already/);
   await assert.rejects(walk(before(), initial({ state_hash: word('state') })), /initial state hash/);
   await assert.rejects(walk(before(), initial({ claimed_root: undefined, claimed: 0 })), /names no initial state with a claimed root/);
+});
+
+test('the state walk follows an update whose padding a relay rewrote to repeat the spent state\'s fields', async () => {
+  // The leaf accepts any padding and the txid does not commit to it, so the confirmed update can carry the fields of
+  // another successor in its padding, under the same txid.
+  const forged = { ...state, lc: word('lc forged'), acc: word('acc forged') };
+  const relayed = updateTx(BOOT_TXID, anchor, state, { wrap: (f) => paddedWitness(f, fieldBytes(anchor, forged)) });
+  assert.equal(relayed.txid, STATE_TXID);
+  const live = await walk(after({ txs: { [STATE_TXID]: relayed.hex } }));
+  assert.deepEqual(live, await walk(after()));
+  assert.deepEqual(live.state, next);
 });
 
 test('each claim is attributed to the deposit its output 0 commits, in any order, and never by order', async () => {

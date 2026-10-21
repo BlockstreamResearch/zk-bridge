@@ -1081,8 +1081,11 @@ const FIELD_BITS: usize = 7 * 256 + 2 * 64;
 
 /// The update fields in a confirmed update's witness.  The leaf checks lc, acc and sibling against the spent output
 /// (tappath_hash), so they are the spent state's lc and acc and the claim leaf's hash; those 768 bits locate the
-/// fields, and must occur exactly once.  The leaf also verified the proof of exactly these values, and output 0's
-/// script, checked by the caller, commits new_lc and new_acc.
+/// fields, at their first occurrence.  The witness is the proof's values, then the fields, then padding blocks
+/// (sg16/covenant.py BridgeVerifier) that the leaf hashes and drops: anyone who relays an update can rewrite the
+/// padding, these 768 bits included, without changing its txid, but cannot make the proof's values hold them.  The
+/// leaf also verified the proof of exactly these values, and output 0's script, checked by the caller, commits
+/// new_lc and new_acc.
 fn update_fields(
     witness: &[u8],
     old: &Recovered,
@@ -1090,20 +1093,10 @@ fn update_fields(
 ) -> Result<UpdateFields, String> {
     let bits = witness_bits(witness);
     let anchor = witness_bits(&[&old.lc[..], &old.acc[..], &sibling[..]].concat());
-    let hits: Vec<usize> = if bits.len() < FIELD_BITS {
-        Vec::new()
-    } else {
-        (0..=bits.len() - FIELD_BITS)
-            .filter(|&o| bits[o..o + anchor.len()] == anchor[..])
-            .collect()
-    };
-    if hits.len() != 1 {
-        return Err(format!(
-            "the witness holds the spent state's lc, acc and claim leaf hash {} times, not once",
-            hits.len()
-        ));
-    }
-    let o = hits[0] + anchor.len();
+    let hit = (0..(bits.len() + 1).saturating_sub(FIELD_BITS))
+        .find(|&o| bits[o..o + anchor.len()] == anchor[..])
+        .ok_or("the witness does not hold the spent state's lc, acc and claim leaf hash")?;
+    let o = hit + anchor.len();
     let u = |k: usize| u64::from_be_bytes(take(&bits, o + 4 * 256 + 64 * k));
     Ok(UpdateFields {
         new_lc: take(&bits, o),
@@ -1600,6 +1593,93 @@ mod tests {
         // An output that two candidates would make is refused, not resolved by order.
         let e = claim_index(&witness_with(5, 9), &claimed, |_| true).unwrap_err();
         assert!(e.contains("not one"), "{e}");
+    }
+
+    /// An update leaf's fields from `old`: lc, acc and `sibling`, then `new_lc`, made-up new_acc and exec_root, the
+    /// claimed root carried, exec_block 9,000,000 and `new_head`.
+    fn field_bytes(
+        old: &Recovered,
+        sibling: &[u8; 32],
+        new_lc: [u8; 32],
+        new_head: u64,
+    ) -> Vec<u8> {
+        [
+            &old.lc[..],
+            &old.acc[..],
+            &sibling[..],
+            &new_lc[..],
+            &[0x44; 32][..],
+            &[0x55; 32][..],
+            &old.claimed.root[..],
+            &9_000_000u64.to_be_bytes()[..],
+            &new_head.to_be_bytes()[..],
+        ]
+        .concat()
+    }
+
+    /// An update leaf's whole witness around `fields`, as the leaf lays it out: made-up proof values, the fields,
+    /// then three 512-byte padding blocks, the second of which holds `padded` from bit 4,099 on, off every byte
+    /// boundary.
+    fn padded_witness(fields: &[u8], padded: &[u8]) -> Vec<u8> {
+        let mut pad = witness_bits(&[0x3c; 3 * 512]);
+        let copy = witness_bits(padded);
+        pad.splice(4099..4099 + copy.len(), copy);
+        let mut bits = witness_bits(&[0xc3; 900]);
+        bits.extend(witness_bits(fields));
+        bits.extend(pad);
+        bits.chunks(8)
+            .map(|c| c.iter().fold(0u8, |v, &b| (v << 1) | b as u8))
+            .collect()
+    }
+
+    /// The leaf accepts any padding and the txid does not commit to it, so a relay can repeat the spent state's
+    /// fields there, with another successor: the fields read are still the ones before the padding.
+    #[test]
+    fn padding_that_repeats_the_spent_fields_does_not_move_the_fields_read() {
+        let old = Recovered {
+            lc: [0x11; 32],
+            acc: [0x22; 32],
+            claimed: Claimed::none(),
+            head: 100,
+            store: None,
+            exec: None,
+        };
+        let sibling = [0x33; 32];
+        let read = |w: &[u8], old: &Recovered| {
+            update_fields(w, old, &sibling).map(|f| {
+                (
+                    f.new_lc,
+                    f.new_acc,
+                    f.exec_root,
+                    f.claimed_root,
+                    f.exec_block,
+                    f.new_head,
+                )
+            })
+        };
+        let fields = field_bytes(&old, &sibling, [0x66; 32], 200);
+        let want = (
+            [0x66; 32],
+            [0x44; 32],
+            [0x55; 32],
+            old.claimed.root,
+            9_000_000,
+            200,
+        );
+        assert_eq!(read(&fields, &old), Ok(want));
+        assert_eq!(read(&padded_witness(&fields, &[]), &old), Ok(want));
+        assert_eq!(read(&padded_witness(&fields, &fields), &old), Ok(want));
+        let forged = field_bytes(&old, &sibling, [0x77; 32], 201);
+        assert_eq!(read(&padded_witness(&fields, &forged), &old), Ok(want));
+
+        let other = Recovered {
+            acc: [0x99; 32],
+            ..old.clone()
+        };
+        let e = read(&padded_witness(&fields, &[]), &other).unwrap_err();
+        assert!(e.contains("does not hold"), "{e}");
+        let e = read(&fields[..fields.len() - 1], &old).unwrap_err();
+        assert!(e.contains("does not hold"), "{e}");
     }
 
     /// `text` in a fresh file named for the test case.

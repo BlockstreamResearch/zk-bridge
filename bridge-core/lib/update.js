@@ -352,19 +352,22 @@ function bytesAt(bits, at, n) {
  * product, so contiguous in the witness: lc, acc and sibling, which the leaf checks against the spent output, then
  * new_lc, new_acc, exec_root and claimed_root, then exec_block and new_head as big-endian 64-bit words. The update
  * carries claimed_root from the spent state to its successor unchanged; spendOf checks it against the spent state
- * leaf. The first 768 bits locate the rest, and must occur exactly once.
+ * leaf. The first 768 bits locate the rest, at their first occurrence: the witness is the proof's values, then the
+ * fields, then padding blocks (tools/sg16/sg16/covenant.py BridgeVerifier) that the leaf hashes and drops. Anyone who
+ * relays an update can rewrite the padding, these 768 bits included, without changing its txid, but cannot make the
+ * proof's values hold them.
  */
 export function updateFields(witness, spent, sibling) {
   const bits = bitsOf(witness);
   const key = bitsOf(concat(hexToBytes(spent.lc), hexToBytes(spent.acc), sibling));
-  const hits = [];
-  for (let o = 0; o + FIELD_BITS <= bits.length; o++) {
+  let hit = -1;
+  for (let o = 0; hit < 0 && o + FIELD_BITS <= bits.length; o++) {
     let i = 0;
     while (i < key.length && bits[o + i] === key[i]) i++;
-    if (i === key.length) hits.push(o);
+    if (i === key.length) hit = o;
   }
-  if (hits.length !== 1) throw new Error(`the update's witness holds the spent state's lc, accumulator and claim leaf hash ${hits.length} times, not once`);
-  const at = hits[0] + key.length;
+  if (hit < 0) throw new Error('the update\'s witness does not hold the spent state\'s lc, accumulator and claim leaf hash');
+  const at = hit + key.length;
   const word = (k) => bytesToHex(bytesAt(bits, at + 256 * k, 32));
   const u64 = (k) => {
     const v = bytesToBig(bytesAt(bits, at + 4 * 256 + 64 * k, 8));
