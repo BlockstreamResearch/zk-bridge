@@ -3,7 +3,7 @@
 
 The recipes run from the repository's justfile against stand-ins on PATH, in temporary work and instance
 directories built from instances/sepolia-liquid-testnet, which is only read. No network access; nothing is signed,
-proved or sent.
+proved or sent. Transaction files are read by the real sg16-testnet (`just tools`).
 
   - `just execute` and `just prove` run the guest only on inputs that start from the recovered state (its head and
     lc), in Sepolia's config, reading slot 0 of the instance's escrow alone; anything else is refused before the
@@ -20,7 +20,6 @@ proved or sent.
     against the record; Esplora, the beacon node, the host and the transaction tool's chain walk are stand-ins (the
     host's checks are its own tests, src/reconstruct.rs an_independent_prover_recovers_a_withheld_store).
 """
-import importlib.util
 import json
 import os
 import shutil
@@ -38,6 +37,8 @@ ROOT = HERE.parents[3]
 JUST = shutil.which('just')
 INSTANCE = ROOT / 'instances' / 'sepolia-liquid-testnet'
 ESPLORA = 'https://esplora.invalid/api'
+# The justfile reads every txid with the real transaction tool, built by `just tools`.
+TX_BIN = ROOT / 'tools' / 'sg16' / 'bridge-guest' / 'target' / 'testnet-tx' / 'release' / 'sg16-testnet'
 SITE = 'https://pages.invalid/instances/sepolia-liquid-testnet'
 
 # The successor head of a first update, and the state and fee outputs it spends: stand-ins, not chain values.
@@ -97,11 +98,9 @@ with open(os.environ['FAKE_NODE_LOG'], 'a') as log:
 
 
 def txid(path):
-    """The Elements txid of a hex file, by tools/liquid-relay/liquid.py, as the justfile's txid_of."""
-    spec = importlib.util.spec_from_file_location('liquid_relay', ROOT / 'tools' / 'liquid-relay' / 'liquid.py')
-    liquid = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(liquid)
-    return liquid.display(liquid.sha256d(liquid.txid_form(bytes.fromhex(''.join(path.read_text().split())))))
+    """The Elements txid of a hex file, by sg16-testnet txid, as the justfile's txid_of."""
+    r = subprocess.run([str(TX_BIN), 'txid', str(path)], capture_output=True, text=True, timeout=60, check=True)
+    return json.loads(r.stdout)['txid']
 
 
 def stand_ins(tmp, scripts):
@@ -202,6 +201,7 @@ class ProofInputs(unittest.TestCase):
 
 
 @unittest.skipIf(JUST is None, 'just is not installed')
+@unittest.skipIf(not TX_BIN.exists(), f'{TX_BIN} is not built: just tools')
 @unittest.skipIf(not (INSTANCE / 'bootstrap.hex').exists(), f'{INSTANCE} has no bootstrap transaction')
 class StorePublication(unittest.TestCase):
     def setUp(self):
@@ -327,8 +327,11 @@ else:
 '''
 
 # sg16-testnet recover: the state the stand-in chain leads to, as the real tool reports a walk through one update.
+# Reading a transaction file is left to the real tool.
 FAKE_TX = r'''#!/usr/bin/env python3
 import os, sys
+if sys.argv[1] in ('txid', 'output', 'input'):
+    os.execv(os.environ['REAL_TX_BIN'], [os.environ['REAL_TX_BIN'], *sys.argv[1:]])
 if sys.argv[1] != 'recover':
     sys.exit(f'fake sg16-testnet: unexpected {sys.argv[1:]}')
 print(open(os.environ['FAKE_RECOVER']).read().strip())
@@ -381,6 +384,7 @@ WITHHELD_LC = pins.lc(WITHHELD_HEAD, WITHHELD_HEADER, WITHHELD_COMMITTEE).hex()
 
 
 @unittest.skipIf(JUST is None, 'just is not installed')
+@unittest.skipIf(not TX_BIN.exists(), f'{TX_BIN} is not built: just tools')
 class WithheldStore(unittest.TestCase):
     def setUp(self):
         self.assertTrue((INSTANCE / 'bootstrap.hex').is_file(), f'{INSTANCE} has no bootstrap transaction')
@@ -417,7 +421,8 @@ class WithheldStore(unittest.TestCase):
                     'SEPOLIA_CONSENSUS_RPC': 'https://beacon.invalid',
                     'SEPOLIA_EXECUTION_RPC': 'https://execution.invalid',
                     'BRIDGE_INSTANCE': str(self.record), 'BRIDGE_WORK': str(self.work),
-                    'SG16_TESTNET_TX': str(self.bin / 'sg16-testnet'), 'FAKE_CHAIN': str(self.tmp / 'chain.json'),
+                    'SG16_TESTNET_TX': str(self.bin / 'sg16-testnet'), 'REAL_TX_BIN': str(TX_BIN),
+                    'FAKE_CHAIN': str(self.tmp / 'chain.json'),
                     'FAKE_RECOVER': str(self.tmp / 'recover.json'), 'FAKE_STORE': str(self.tmp / 'store.json'),
                     'FAKE_FINALIZED': str(WITHHELD_HEAD + 64),
                     'FAKE_DEPOSITS': json.dumps([[100_000, '0014' + '33' * 20]]),

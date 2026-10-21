@@ -5,9 +5,10 @@
 The recipes run from the repository's justfile against stand-ins for cast, curl and sg16-bridge-host on PATH, in a
 temporary DEPLOY_WORK and BRIDGE_INSTANCE. No network access; nothing is signed or sent. The constructor values are
 those of the current Sepolia deployment and Liquid checkpoint 2,668,999. A synthetic later relay raises lcTipHeight
-before deploy-record. The anchor is synthetic and the funding output is reported unspent by the curl stand-in. The
-host stand-in reads the anchor inputs as JSON of the bootstrap's slot and roots, and its reconstruct and check-store
-recompute lc with pins.lc as the host does.
+before deploy-record. The anchor and the funding transaction are synthetic: the curl stand-in serves the funding
+transaction's bytes, which sg16-testnet reads as on Liquid, and reports its funding output unspent. The host stand-in
+reads the anchor inputs as JSON of the bootstrap's slot and roots. Its reconstruct and check-store recompute lc with
+pins.lc as the host does.
 
   - the deployment block's storage is the checkpoint and the current tip has advanced: the record is written, with
     the deployment's code hash, DOMAIN and block (the earlier recipe read only the current tip and refused this)
@@ -23,9 +24,11 @@ recompute lc with pins.lc as the host does.
   - an existing lc_preimages.json or lc_stores/ in the record is refused and left as it was
   - no output names SEPOLIA_EXECUTION_RPC's value
 """
+import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -45,7 +48,6 @@ DEPLOY_BLOCK = 11_957_564
 CODE_HASH = '0x16e9013879ca9176cd66f8ae0d1d1670b2e61a0566d9e5a024181a23abd4b71d'
 DOMAIN = '0x0ddb071bb90e30a52032cc69e37093d24756355eaf466a3dfc9f66f980d4f083'
 ASSET = '0x097c43d4f52775b19edb9e26d536e4b84d8e370ab3abfc1223c0e8bf0d1df7b3'
-FUNDING = '936978f0507f60873983ea03fa6d14f4fe9d632a1a16fe273cd033bbbcd46414:1'
 CHECKPOINT_HEIGHT = 2_668_999
 CHECKPOINT_HASH = '0xf94e71dcf3e7d844454c43fbe2993b23df680178c51d3e14dd7683b472da5c4f'
 SIGNBLOCKSCRIPT = '0x3445876b7281e084740f2ec2731ad9b00c50f08a5cfa363b4ada5141539f1c4f'
@@ -53,6 +55,34 @@ DEPOSITS_END = 1_795_115_088
 TIP_HEIGHT = 2_669_005
 TIP_HASH = '0x' + '22' * 32
 RPC_SECRET = 'https://sepolia.rpc.invalid/v2/do-not-print-this-key'
+
+
+def funding_tx():
+    """An Elements transaction, without witnesses, of one input and two explicit tL-BTC outputs; output 1 funds the
+    asset's issuance."""
+    lbtc = bytes.fromhex(pins.LIQUID_TESTNET_LBTC_DISPLAY)[::-1]
+
+    def output(sats, script):  # explicit asset, explicit value, no nonce, script
+        return b'\x01' + lbtc + b'\x01' + sats.to_bytes(8, 'big') + b'\x00' + bytes([len(script)]) + script
+
+    def p2wpkh(tag):
+        return b'\x00\x14' + pins.sha(tag)[:20]
+
+    prevout = pins.sha(b'deploy-record test funding prevout') + struct.pack('<I', 0)
+    change = output(50_000, p2wpkh(b'deploy-record test change'))
+    funding = output(10_000, p2wpkh(b'deploy-record test fee key'))
+    return (struct.pack('<i', 2) + b'\x00'  # version; no witnesses
+            + b'\x01' + prevout + b'\x00' + struct.pack('<I', 0xffffffff)
+            + b'\x02' + change + funding
+            + struct.pack('<I', 0))  # locktime
+
+
+def txid(tx):
+    return hashlib.sha256(hashlib.sha256(tx).digest()).digest()[::-1].hex()
+
+
+FUNDING_TX = funding_tx()
+FUNDING = f'{txid(FUNDING_TX)}:1'
 
 FAKE_CAST = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -78,14 +108,17 @@ else:
 '''
 
 FAKE_CURL = r'''#!/usr/bin/env python3
-import json, sys
+import json, os, sys
 path = sys.argv[-1].split('/api/', 1)[1]
+txs = json.loads(os.environ['FAKE_LIQUID_TXS'])
 if path.endswith('/status'):
     print(json.dumps({'confirmed': True, 'block_height': 1}))
 elif '/outspend/' in path:
     print(json.dumps({'spent': False}))
+elif path.startswith('tx/') and path.endswith('/hex') and path[3:-4] in txs:
+    print(txs[path[3:-4]])
 else:
-    print(json.dumps({'vout': [{}, {}]}))
+    sys.exit(22)  # curl -f on an HTTP error
 '''
 
 FAKE_HOST = r'''#!/usr/bin/env python3
@@ -194,7 +227,9 @@ class DeployRecord(unittest.TestCase):
         env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'FAKE_SEPOLIA': str(self.tmp / 'sepolia.json'),
                'FAKE_PINS_DIR': str(HERE), 'FAKE_HOST_LOG': str(self.tmp / 'host.calls'),
                'SEPOLIA_EXECUTION_RPC': RPC_SECRET, 'LIQUID_ESPLORA': 'https://esplora.invalid/api',
-               'BRIDGE_INSTANCE': str(self.record), 'BRIDGE_ELF': str(self.tmp / 'elf'), **env_extra}
+               'FAKE_LIQUID_TXS': json.dumps({FUNDING.split(':')[0]: FUNDING_TX.hex()}),
+               'BRIDGE_INSTANCE': str(self.record), 'BRIDGE_WORK': str(self.tmp / 'work'),
+               'BRIDGE_ELF': str(self.tmp / 'elf'), **env_extra}
         env.pop('ETH_RPC_URL', None)
         r = subprocess.run([JUST, f'DEPLOY_WORK={self.work}', f'BRIDGE_HOST_BIN={self.bin / "sg16-bridge-host"}',
                             *(recipe or ['deploy-record'])],

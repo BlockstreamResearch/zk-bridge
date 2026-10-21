@@ -3,15 +3,15 @@
 # dependencies, but their checks do not depend on live RPC or Esplora responses.
 #
 # Not run in routine CI:
+#   - The slow deterministic checks, in slow.yml: test_bridge_guest.py --full, test_testnet.py --full and --real
+#     (each compiles a folded Groth16 verifier for minutes), and the guest ELF rebuilt in the pinned SP1 Docker
+#     image and compared with the instance's pins (`just prover`, `just check-elf`).
 #   - Network reads: relay.py and fork_proof.py build, testRealSepoliaStateProof (SEPOLIA_FORK_PROOF_RPC), every
 #     justfile recipe outside the stand-in tests below, and Esplora or Sepolia RPC reads of any kind.
-#   - SP1: the guest ELF (`just prover`, the pinned Docker image) and proving or executing it; test_testnet.py --real
-#     and test_bridge_guest.py --artifact, which need real proof artifacts that are not tracked.
-#   - test_testnet.py --full and test_bridge_guest.py --full: deterministic, but they compile the folded Groth16
-#     verifier for minutes each; run them by hand before changing the generator.
-#   - smplx (`simplex`) type-checking of the claim leaf: no smplx release builds on the SimplicityHL and
-#     rust-simplicity commits pinned in bootstrap-deps.py, which alone give the CMR (contracts/simplicity/README.md).
-#     The claim crate's tests above compile the leaf with the pinned toolchain.
+#   - SP1 proving or executing the guest, and the checks of real proof artifacts, which are not tracked:
+#     test_testnet.py --exec-artifact and --proof-artifact, test_bridge_guest.py --artifact.
+#   - The smplx CLI's binding generation. The claim crate tests below compile the leaf with the pinned toolchain
+#     and check that smplx's SimplicityHL release gives the same CMR (contracts/simplicity/README.md).
 #   - The staged-artifact gates of pages.yml, which test exactly what a manual Pages run will upload.
 
 name: CI
@@ -77,8 +77,9 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - name: Shared protocol vectors
         run: node vectors/record.mjs --check
+      # No dependencies to install: node --test over bridge-core/test.
       - name: Shared browser rules and CLI
-        run: npm ci --prefix ui && npm --prefix ui test
+        run: npm --prefix bridge-core test
       # Typecheck, lint, tests and the production build, from the lockfile.
       - name: React page
         run: npm ci --prefix ui && npm --prefix ui run check
@@ -95,7 +96,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Rust toolchain
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal -c rustfmt && rustup default "$RUST_TOOLCHAIN"
-      # test_deploy_record.py and test_proof_path.py run justfile recipes against stand-ins.
+      # test_deploy_record.py, test_proof_path.py and test_tx_reading.py run justfile recipes against stand-ins.
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           tool: just@1.45.0
@@ -150,6 +151,7 @@ jobs:
           python3 tools/sg16/bridge-guest/testnet/test_testnet.py
           python3 tools/sg16/bridge-guest/testnet/test_deploy_record.py
           python3 tools/sg16/bridge-guest/testnet/test_proof_path.py
+          python3 tools/sg16/bridge-guest/testnet/test_tx_reading.py
       - name: Published covenant and bootstrap
         run: |
           python3 tools/sg16/bridge-guest/testnet/assemble.py verify-bootstrap \

@@ -117,7 +117,7 @@ _prelude := '''
       # directory's escrow, code hash, bootstrap txid and manifest state address are the ones the page pins. An
       # escrow alone does not decide it: a copied or edited record with the same escrow is not what Pages publishes.
       local e b=""; e=$(escrow)
-      [ ! -f "$BRIDGE_INSTANCE/bootstrap.hex" ] || b=$(txid_of "$BRIDGE_INSTANCE/bootstrap.hex" 2>/dev/null) || b=""
+      [ ! -f "$BRIDGE_INSTANCE/bootstrap.hex" ] || b=$(txid_of "$BRIDGE_INSTANCE/bootstrap.hex") || b=""
       node --input-type=module - "$BRIDGE_INSTANCE" "$e" "$b" <<'JS' || die "could not compare $BRIDGE_INSTANCE with bridge-core/config.js INSTANCE"
     import { existsSync, readFileSync, realpathSync } from 'node:fs';
     const [dir, escrow, bootstrap] = process.argv.slice(2);
@@ -170,7 +170,7 @@ _prelude := '''
     ' "$o"
     }
     check_funding() {  # the asset's issuance input must still exist when the escrow is deployed
-      local funding txid vout spent asset
+      local funding txid vout spent asset f
       need "$DEPLOY_WORK/escrow-params.json" "run: just deploy-params"
       need "$DEPLOY_WORK/asset.json" "run: just deploy-asset"
       funding=$(jget "$DEPLOY_WORK/escrow-params.json" funding) || die "cannot read the funding outpoint"
@@ -183,8 +183,8 @@ _prelude := '''
       txid=${funding%:*}; vout=${funding#*:}
       confirmed "$txid" || die "funding transaction $txid is not confirmed"
       # Esplora reports any output index it has never seen, existing or not, as unspent.
-      esplora "tx/$txid" | python3 -c 'import json, sys; sys.exit(int(sys.argv[1]) >= len(json.load(sys.stdin)["vout"]))' "$vout" \
-        || die "could not confirm that funding transaction $txid has an output $vout"
+      f=$(tx_file "$txid") || die "could not fetch funding transaction $txid"
+      tx_report output "$f" "$vout" > /dev/null || die "could not confirm that funding transaction $txid has an output $vout"
       spent=$(outspend "$txid" "$vout") || die "could not check whether funding output $funding is unspent"
       [ -z "$spent" ] || die "funding output $funding is spent by ${spent%% *}; do not deploy this escrow"
     }
@@ -296,14 +296,15 @@ _prelude := '''
           f"{summary['target_finalized_slot']}")
     PY
     }
-    txid_of() {  # the Elements txid of hex file $1, computed locally by tools/liquid-relay/liquid.py
-      python3 -c '
-    import sys
-    sys.path.insert(0, "tools/liquid-relay")
-    import liquid
-    raw = bytes.fromhex("".join(open(sys.argv[1]).read().split()))
-    print(liquid.display(liquid.sha256d(liquid.txid_form(raw))))
-    ' "$1"
+    tx_report() {  # tx_report <command> <arg>...: the sg16-testnet report; a refusal prints its failed gate and fails
+      need "$TX_BIN" "run: just tools"
+      local r; r=$("$TX_BIN" "$@") && { printf '%s\n' "$r"; return; }
+      printf 'sg16-testnet %s refused: %s\n' "$1" "$(jget - failed_gate <<< "$r" 2>/dev/null || printf '%s' "$r")" >&2
+      return 1
+    }
+    txid_of() {  # the Elements txid of hex file $1, computed locally by sg16-testnet txid
+      local r; r=$(tx_report txid "$1") || return 1
+      jget - txid <<< "$r"
     }
     check_txid() {  # check_txid <file> <txid>: refuse unless the file's bytes are transaction <txid>
       local got; got=$(txid_of "$1") || die "$1 does not parse as an Elements transaction"
@@ -824,19 +825,20 @@ stage-store mode="signed":
     need "$BRIDGE_WORK/proof.store.json" "just prove writes it beside proof.json"
     need "$TX_BIN" "run: just tools"
     target
+    spends=$(tx_report input "$update_file" 0) || die "$update_file has no readable input 0"
+    creates=$(tx_report output "$update_file" 0) || die "$update_file has no readable output 0"
     # Nothing is written into the instance until the update, its new state, the proof and the store are all shown to
     # be this instance's: a work directory once used for another BRIDGE_INSTANCE must not pollute this record.
-    python3 - "$BRIDGE_INSTANCE" "$BRIDGE_WORK" "$update_file" "$update_file.meta.json" <<'PY'
-    import importlib.util, json, sys
+    python3 - "$BRIDGE_INSTANCE" "$BRIDGE_WORK" "$update_file" "$update_file.meta.json" \
+      "$(jget - previous_output <<< "$spends")" "$(jget - script_pubkey <<< "$creates")" <<'PY'
+    import json, sys
     from pathlib import Path
     sys.path.insert(0, "tools/sg16/bridge-guest/testnet")
     import assemble
-    # tools/liquid-relay/liquid.py parses Elements transactions; assemble has already imported another `liquid`.
-    spec = importlib.util.spec_from_file_location("liquid_relay", "tools/liquid-relay/liquid.py")
-    liquid = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(liquid)
     inst, work, update_file = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
     meta = json.loads(Path(sys.argv[4]).read_text())
+    # The outpoint input 0 spends and the script of output 0, as sg16-testnet input and output read them.
+    spends, creates = sys.argv[5], sys.argv[6]
     norm = lambda h: str(h).lower().removeprefix("0x")
     other = (f"; it was built for another BRIDGE_INSTANCE or another update. Nothing was staged into {inst}. "
              "Give each instance its own BRIDGE_WORK and rebuild from just recover")
@@ -866,27 +868,9 @@ stage-store mode="signed":
         sys.exit(f"{inst} refuses this update: {e!r}{other}")
     # The update itself: input 0 spends output 0 of the state its sidecar names, and output 0 is the state UTXO of
     # update.new_state.json under this instance's leaves, which commit to its escrow, guest and claim leaf.
-    r = liquid.Reader(bytes.fromhex("".join(update_file.read_text().split())))
-    r.take(4)
-    r.take(1)
-    ins = []
-    for _ in range(r.compact_size()):
-        prev, n = liquid.display(r.take(32)), r.u32()
-        r.var_bytes()
-        r.take(4)
-        if n != 0xffffffff and n & 0x80000000:
-            r.take(64)
-            liquid._skip_commitment(r, liquid.VALUE)
-            liquid._skip_commitment(r, liquid.VALUE)
-        ins.append((prev, n & 0x3fffffff))
-    outs = []
-    for _ in range(r.compact_size()):
-        for field in (liquid.ASSET, liquid.VALUE, liquid.NONCE):
-            liquid._skip_commitment(r, field)
-        outs.append(r.var_bytes().hex())
-    if not ins or ins[0] != (meta["state"], 0) or meta["parents"][:1] != [meta["state"]]:
-        sys.exit(f"{update_file} input 0 spends {ins[0] if ins else 'nothing'}, not output 0 of its sidecar's state {meta['state']}{other}")
-    if not outs or outs[0] != tree["script_pubkey"]:
+    if spends != f"{meta['state']}:0" or meta["parents"][:1] != [meta["state"]]:
+        sys.exit(f"{update_file} input 0 spends {spends}, not output 0 of its sidecar's state {meta['state']}{other}")
+    if creates != tree["script_pubkey"]:
         sys.exit(f"{update_file} output 0 is not {inst}'s state UTXO for update.new_state.json{other}")
     raw = (work / "proof.store.json").read_bytes()
     store = json.loads(raw)
@@ -1148,44 +1132,11 @@ deploy-asset txid vout:
     spent=$(outspend "$txid" "$vout") || die "could not check the funding output"
     [ -z "$spent" ] || die "funding output $txid:$vout is already spent"
     spk=$("$WALLET_BIN" address "$LIQUID_FEE_KEY" | jget - script_pubkey)
-    python3 - "$f" "$vout" "$spk" <<'PY'
-    import sys
-    sys.path.insert(0, "tools/liquid-relay")
-    sys.path.insert(0, "tools/sg16/bridge-guest/testnet")
-    import liquid, pins
-    raw, vout, spk = bytes.fromhex("".join(open(sys.argv[1]).read().split())), int(sys.argv[2]), sys.argv[3]
-    r = liquid.Reader(raw)
-    r.take(4)
-    r.take(1)
-    for _ in range(r.compact_size()):
-        r.take(32)
-        n = r.u32()
-        r.var_bytes()
-        r.take(4)
-        if n != 0xffffffff and n & 0x80000000:
-            r.take(64)
-            liquid._skip_commitment(r, liquid.VALUE)
-            liquid._skip_commitment(r, liquid.VALUE)
-    outs = []
-    for _ in range(r.compact_size()):
-        asset = r.take(33) if r.b[r.p] == 1 else None
-        if asset is None:
-            liquid._skip_commitment(r, liquid.ASSET)
-        value = r.take(9) if r.b[r.p] == 1 else None
-        if value is None:
-            liquid._skip_commitment(r, liquid.VALUE)
-        liquid._skip_commitment(r, liquid.NONCE)
-        outs.append((asset, value, r.var_bytes().hex()))
-    if vout >= len(outs):
-        sys.exit(f"the funding transaction has {len(outs)} outputs")
-    asset, value, script = outs[vout]
-    lbtc = pins.internal(pins.LIQUID_TESTNET_LBTC_DISPLAY)
-    if asset is None or asset[1:] != lbtc or value is None:
-        sys.exit("the funding output is not explicit tL-BTC")
-    if script != spk:
-        sys.exit("the funding output does not pay the fee key, which must sign the bootstrap's issuance input")
-    print(f"funding output: {int.from_bytes(value[1:], 'big')} sats of explicit tL-BTC to the fee key")
-    PY
+    out=$(tx_report output "$f" "$vout") || die "funding transaction $txid has no readable output $vout"
+    [ "$(jget - explicit_lbtc <<< "$out")" = true ] || die "the funding output is not explicit tL-BTC"
+    [ "$(jget - script_pubkey <<< "$out")" = "$spk" ] \
+      || die "the funding output does not pay the fee key, which must sign the bootstrap's issuance input"
+    echo "funding output: $(jget - value <<< "$out") sats of explicit tL-BTC to the fee key"
     rm -f "$DEPLOY_WORK/asset.json"
     if ! python3 "$ASSEMBLE_PY" asset --report "$DEPLOY_WORK/asset.json" --funding-txid "$txid" --funding-vout "$vout" \
         > "$DEPLOY_WORK/asset.log"; then

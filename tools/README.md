@@ -14,7 +14,7 @@ the Solidity fixtures.
 | `sg16/bridge-guest/core/` | `sg16-bridge-core` | The guest's rules and encodings, shared by the guest and the host: light-client commitment, Sepolia config, public values |
 | `sg16/bridge-guest/program/` | (SP1 ELF) | The SP1 guest |
 | `sg16/bridge-guest/host/` | `sg16-bridge-host` | Proof inputs from a published or reconstructed light-client store, proving, store files, vkey |
-| `sg16/bridge-guest/testnet/tx/` | `sg16-testnet` | Bootstrap, update and recovery transactions; the node-like `verify` |
+| `sg16/bridge-guest/testnet/tx/` | `sg16-testnet` | Bootstrap, update and recovery transactions; the node-like `verify`; `txid`, `output` and `input`, which read every transaction file the `justfile` checks |
 | `sg16/bridge-guest/testnet/claim/` | `sg16-testnet-claim` | The deposits a state proves and has paid, and the claim transaction of any one of them (`--deposit <index>`), through the claim crate in `contracts/simplicity` |
 | `sg16/liquid-testnet-wallet/` | `sg16-liquid-testnet-wallet` | The operator's fee key: new, address, split, sign, and the bare `OP_RETURN` burn |
 
@@ -38,9 +38,6 @@ the Solidity fixtures.
 - The update-leaf generator and the SP1 key fold (`sg16/sg16/sp1.py`) run on simple-groth16's BN254 field, curve
   and Groth16 code. Moving them means reimplementing that library in Rust and proving the emitted program
   unchanged by its CMR, a project of its own; `assemble.py` would then shrink to argument handling.
-- The Elements parsing the `justfile` does inline in Python (a transaction's txid, and an output's asset, value
-  and script for `deploy-asset`) belongs in `sg16-testnet`, which already parses transactions with
-  rust-elements. That is the next step: add `txid` and `output` commands there, then call them from the recipes.
 - Two modules are named `liquid`: `liquid-relay/liquid.py` (Elements encodings) and `sg16/bridge-guest/liquid.py`
   (the update leaf). Renaming the second to `update_leaf.py` waits for the next guest rebuild: the guest
   workspace's manifest and core CLI name it, as the guest's `lib.rs` names `sg16/helios.py`, and edits there are
