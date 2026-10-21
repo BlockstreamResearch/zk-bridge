@@ -41,9 +41,9 @@ STORE_READBACK_URL := env("STORE_READBACK_URL", "")
 FEE_UPDATE_SATS := env("FEE_UPDATE_SATS", "12000")
 FEE_CLAIM_SATS := env("FEE_CLAIM_SATS", "2000")
 SPLIT_FEE_SATS := env("SPLIT_FEE_SATS", "300")
-# Initial maximum; cli.js reduces it automatically when an RPC enforces a smaller eth_getLogs range.
+# Initial maximum; bridge-operator reduces it automatically when an RPC enforces a smaller eth_getLogs range.
 DEPOSIT_LOG_STEP := env("DEPOSIT_LOG_STEP", "2000")
-# Delay between Sepolia RPC requests; cli.js increases it if the provider rate-limits.
+# Delay between Sepolia RPC requests; bridge-operator increases it if the provider rate-limits.
 DEPOSIT_LOG_PACE := env("DEPOSIT_LOG_PACE", "250")
 WAIT_SECONDS := env("WAIT_SECONDS", "30")
 WAIT_TRIES := env("WAIT_TRIES", "60")
@@ -71,6 +71,7 @@ ASSEMBLE_PY := "tools/sg16/bridge-guest/testnet/assemble.py"
 TX_BIN := "tools/sg16/bridge-guest/target/testnet-tx/release/sg16-testnet"
 WALLET_BIN := "tools/sg16/liquid-testnet-wallet/target/release/sg16-liquid-testnet-wallet"
 BRIDGE_HOST_BIN := "tools/sg16/bridge-guest/target/release/sg16-bridge-host"
+OPERATOR_BIN := "tools/bridge-operator/target/release/bridge-operator"
 
 # Shell helpers shared by the recipes below. Values reach them only as environment variables, never by
 # interpolation into the script text.
@@ -402,13 +403,14 @@ config:
 deps:
     python3 tools/bootstrap-deps.py
 
-# Build the assembly tools and the fee wallet.
+# Build the assembly tools, the fee wallet and the operator commands.
 [group('build')]
 tools:
     cargo build --release --locked --manifest-path tools/sg16-harness/Cargo.toml
     CARGO_TARGET_DIR=tools/sg16/bridge-guest/target/testnet-tx cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/tx/Cargo.toml
     CARGO_TARGET_DIR=tools/sg16/bridge-guest/target/testnet-claim cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml
     cargo build --release --locked --manifest-path tools/sg16/liquid-testnet-wallet/Cargo.toml
+    cargo build --release --locked --manifest-path tools/bridge-operator/Cargo.toml
 
 # Build the prover host without Docker or the SP1 cargo-prove tool.
 [group('build')]
@@ -496,12 +498,13 @@ deposits:
     #!/usr/bin/env bash
     {{ _prelude }}
     need_env SEPOLIA_EXECUTION_RPC "a Sepolia execution RPC serving eth_getLogs and eth_call"
+    need "$OPERATOR_BIN" "run: just tools"
     e=$(escrow)
     from=$(jget "$BRIDGE_INSTANCE/instance.json" ESCROW_DEPLOY_BLOCK)
     mkdir -p "$BRIDGE_WORK"
     rm -f "$BRIDGE_WORK/deposits.report.json"
-    # cli.js reads the URL from the environment, so it stays out of the process list.
-    node bridge-core/cli.js deposits --escrow "$e" --from "$from" --step "$DEPOSIT_LOG_STEP" --pace "$DEPOSIT_LOG_PACE" \
+    # bridge-operator reads the URL from the environment, so it stays out of the process list.
+    "$OPERATOR_BIN" deposits --escrow "$e" --from "$from" --step "$DEPOSIT_LOG_STEP" --pace "$DEPOSIT_LOG_PACE" \
       --out "$BRIDGE_WORK/deposits.json" > "$BRIDGE_WORK/deposits.report.json"
     echo "$(jget "$BRIDGE_WORK/deposits.report.json" deposits) deposit(s) to escrow $e final through Sepolia block $(jget "$BRIDGE_WORK/deposits.report.json" to_block)"
 

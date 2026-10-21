@@ -21,7 +21,8 @@ This is research code: nothing here has a formal cryptographic audit, and Liquid
 | `tools/liquid-relay/` | Liquid header relay inputs for the light client, and the escrow's beacon fork-check proof |
 | `vectors/` | Every domain tag and the values derived from them, which the Solidity, Rust, Python and JavaScript implementations all check |
 | `ui/` | The React page, built with Vite to a static site |
-| `bridge-core/` | Shared browser and CLI rules, tests, and the operator CLI |
+| `bridge-core/` | The page's browser-side protocol rules, its published instance, and their tests |
+| `tools/bridge-operator/` | Rust operator commands: federation, checkpoint, burn script, relay and redeem calldata, and the deposit list |
 | `justfile` | Recipes for proving, claiming and deploying ([OPERATOR.md](OPERATOR.md#the-same-steps-with-just)); `broadcast` and `deploy-escrow` send transactions after their checks and a prompt |
 | `instances/` | The deployed instance's pins, manifest, initial state, bootstrap, light-client preimages and stores |
 | `vendor/` | Pinned dependencies, ignored by git and fetched by `tools/bootstrap-deps.py` |
@@ -53,9 +54,10 @@ node vectors/record.mjs --check
 # 4. The claim leaf: its rules and the deployed leaf rebuilt to its CMR and source hash.
 cargo test --release --locked --manifest-path contracts/simplicity/Cargo.toml
 
-# 5. The shared browser rules, the React page, and the relay tools.
+# 5. The browser rules, the React page, the operator commands, and the relay tools.
 npm --prefix bridge-core test
 npm ci --prefix ui && npm --prefix ui run check
+cargo test --release --locked --manifest-path tools/bridge-operator/Cargo.toml
 python3 tools/liquid-relay/test_liquid.py
 python3 tools/liquid-relay/test_beacon.py
 

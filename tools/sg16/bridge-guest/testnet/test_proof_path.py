@@ -363,17 +363,17 @@ else:
     sys.exit(f'fake host: unexpected {args}')
 '''
 
-# node: the deposit scan (cli.js deposits) from FAKE_DEPOSITS; the site checks print nothing (not served).
-FAKE_RECOVERY_NODE = r'''#!/usr/bin/env python3
+# bridge-operator: the deposit scan (`bridge-operator deposits`) from FAKE_DEPOSITS. Its real reader is tested in
+# tools/bridge-operator/tests; here only the recipe's use of its output is.
+FAKE_OPERATOR = r'''#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
-with open(os.environ['FAKE_NODE_LOG'], 'a') as log:
-    log.write(json.dumps([os.environ.get('RECORD_DIR')] + args) + '\n')
-if args[:2] == ['bridge-core/cli.js', 'deposits']:
-    deposits = json.loads(os.environ['FAKE_DEPOSITS'])
-    with open(args[args.index('--out') + 1], 'w') as out:
-        json.dump(deposits, out)
-    print(json.dumps({'deposits': len(deposits), 'to_block': 1}))
+if args[:1] != ['deposits']:
+    sys.exit(f'fake bridge-operator: unexpected {args}')
+deposits = json.loads(os.environ['FAKE_DEPOSITS'])
+with open(args[args.index('--out') + 1], 'w') as out:
+    json.dump(deposits, out)
+print(json.dumps({'to_block': 1, 'deposits': len(deposits)}))
 '''
 
 # The withheld update's successor: a head past the anchor and the roots its store would have.
@@ -391,7 +391,8 @@ class WithheldStore(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix='withheld-store-'))
         self.addCleanup(shutil.rmtree, self.tmp)
         self.bin = stand_ins(self.tmp, {'curl': FAKE_CHAIN_CURL, 'sg16-testnet': FAKE_TX,
-                                        'sg16-bridge-host': FAKE_RECOVERY_HOST, 'node': FAKE_RECOVERY_NODE})
+                                        'sg16-bridge-host': FAKE_RECOVERY_HOST, 'bridge-operator': FAKE_OPERATOR,
+                                        'node': FAKE_NODE})
         self.record = self.tmp / 'instances' / INSTANCE.name
         shutil.copytree(INSTANCE, self.record)
         self.work = self.tmp / 'work'
@@ -433,7 +434,8 @@ class WithheldStore(unittest.TestCase):
 
     def just(self, *args, **env):
         r = subprocess.run([JUST, f'BRIDGE_HOST_BIN={self.bin / "sg16-bridge-host"}',
-                            f'TX_BIN={self.bin / "sg16-testnet"}', *args],
+                            f'TX_BIN={self.bin / "sg16-testnet"}', f'OPERATOR_BIN={self.bin / "bridge-operator"}',
+                            *args],
                            cwd=ROOT, env={**self.env, **env}, capture_output=True, text=True, timeout=300)
         posts = [c for c in lines(self.tmp / 'curl') if '-X' in c or '--data-binary' in c]
         self.assertEqual(posts, [], 'nothing is sent')

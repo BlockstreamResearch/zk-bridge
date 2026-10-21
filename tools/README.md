@@ -17,6 +17,11 @@ the Solidity fixtures.
 | `sg16/bridge-guest/testnet/tx/` | `sg16-testnet` | Bootstrap, update and recovery transactions; the node-like `verify`; `txid`, `output` and `input`, which read every transaction file the `justfile` checks |
 | `sg16/bridge-guest/testnet/claim/` | `sg16-testnet-claim` | The deposits a state proves and has paid, and the claim transaction of any one of them (`--deposit <index>`), through the claim crate in `contracts/simplicity` |
 | `sg16/liquid-testnet-wallet/` | `sg16-liquid-testnet-wallet` | The operator's fee key: new, address, split, sign, and the bare `OP_RETURN` burn |
+| `bridge-operator/` | `bridge-operator` | Read-only commands against the escrow: a header's federation, the deployment checkpoint, the burn script, the next `submitHeaders` batch and `redeem`/`redeemTo` calldata, and the deposit list `assemble.py claim` reads. Its `eth_getLogs` scan narrows to the range a provider allows and backs off when rate-limited; it writes its output whole or not at all, and keeps RPC credentials out of every message |
+
+The page has its own JavaScript implementation of the rules `bridge-operator` uses, in `bridge-core/lib`. To keep the
+two equal, `tools/bridge-operator/tests` repeats that suite's expected values and checks the shared burn-script vectors
+and the Solidity suite's Liquid testnet fixture.
 
 ## Python, and why
 

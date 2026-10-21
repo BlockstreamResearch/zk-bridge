@@ -109,13 +109,14 @@ jobs:
             tools/sg16-harness/target
             tools/sg16/bridge-guest/target
             tools/sg16/liquid-testnet-wallet/target
+            tools/bridge-operator/target
           key: rust-python-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('**/Cargo.lock', 'tools/bootstrap-deps.py') }}
       - name: Fetch pinned dependencies
         run: python3 tools/bootstrap-deps.py
       - name: Rust formatting
         run: |
           for m in contracts/simplicity tools/sg16-harness tools/sg16/bridge-guest/testnet/tx \
-                   tools/sg16/bridge-guest/testnet/claim tools/sg16/liquid-testnet-wallet; do
+                   tools/sg16/bridge-guest/testnet/claim tools/sg16/liquid-testnet-wallet tools/bridge-operator; do
             cargo fmt --check --manifest-path "$m/Cargo.toml"
           done
           # A virtual workspace, so --all.
@@ -139,6 +140,9 @@ jobs:
         run: cargo test --release --locked --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml && cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml
       - name: Fee wallet
         run: cargo test --release --locked --manifest-path tools/sg16/liquid-testnet-wallet/Cargo.toml
+      # The operator commands against local Esplora and JSON-RPC stubs, and the vectors the page's rules share.
+      - name: Operator commands
+        run: cargo test --release --locked --manifest-path tools/bridge-operator/Cargo.toml && cargo build --release --locked --manifest-path tools/bridge-operator/Cargo.toml
       - name: Relay and fork-proof tools
         run: python3 tools/liquid-relay/test_liquid.py && python3 tools/liquid-relay/test_beacon.py
       - name: SP1 key and update leaf
