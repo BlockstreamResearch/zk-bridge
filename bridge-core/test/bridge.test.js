@@ -12,7 +12,6 @@ import {
   isStandardRecipient, isXOnlyKey, liftY, parseEther, parseForkProof, readBurnScript,
   redeemCalldata, REDEEM_SIGNATURE, REDEEM_TO_SIGNATURE, REDEEMED_TOPIC, redeemToCalldata, relayBatch, SUBMIT_SIGNATURE, submitHeadersCalldata,
 } from '../lib/bridge.js';
-import { federationOf } from '../cli.js';
 
 const sha = (b) => new Uint8Array(createHash('sha256').update(b).digest());
 const sha2 = (b) => sha(sha(b));
@@ -417,16 +416,6 @@ test('a real fork proof gives the root and calldata fork_proof.py recorded', { s
   const p = parseForkProof(JSON.stringify(out));
   assert.equal('0x' + bytesToHex(beaconBlockRoot(p)), out.blockRoot);
   assert.equal(checkForkCalldata(p), out.calldata);
-});
-
-test('federationOf reads the scripts BridgeEscrow accepts', () => {
-  const k = (b) => concat([0x02], new Uint8Array(32).fill(b));
-  const script = concat([0x52, 0x21], k(1), [0x21], k(2), [0x21], k(3), [0x53, 0xae]);
-  const f = federationOf(script);
-  assert.equal(f.threshold, 2);
-  assert.deepEqual(f.keys.map(bytesToHex), [k(1), k(2), k(3)].map(bytesToHex));
-  assert.equal(federationOf(concat([0x21], k(9), [0xac])).threshold, 1);
-  assert.throws(() => federationOf(concat([0x53, 0x21], k(1), [0x51, 0xae])), /multisig/);
 });
 
 function le32(x) {

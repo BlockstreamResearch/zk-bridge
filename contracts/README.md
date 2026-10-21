@@ -57,7 +57,7 @@ The page builds this script itself and reads `burnScriptPubKey(recipient)` only 
 
 Redemption pays in full or does not happen. `redeem` pays with a plain call that gets all remaining gas but 1/64 (EIP-150); if the call fails, the redemption reverts with `PayoutFailed` and the burn stays unspent. A recipient that refuses plain ETH but can make calls uses `redeemTo(to, burn, ref)`, which only it can call, because the burn script commits to the recipient. The payout path contains no fixed gas amount: no fixed stipend stays right across forks. Tests: `testRefusingRecipientRedeemsToAnotherAddress`, `testGasHungryRecipientIsPaidOrNothingHappens` and the reentrancy test. An address that can neither receive ETH nor call the escrow can never redeem, and a mistyped address loses the burn, so the page accepts a burn recipient only as the connected account or an EIP-55 checksummed address, and warns when it is a contract.
 
-`testRedemptionSelectorsErrorsAndEvent` pins the selectors, error names and `Redeemed` topic that the page and `cli.js` encode and decode.
+`testRedemptionSelectorsErrorsAndEvent` pins the selectors, error names and `Redeemed` topic that the page and `tools/bridge-operator` encode and decode.
 
 ## checkFork hashes the progressive BeaconState
 

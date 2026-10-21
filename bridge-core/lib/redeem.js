@@ -1,5 +1,6 @@
 // Redemption and relaying against a deployed BridgeEscrow, from Esplora data and escrow reads. `call` is
-// an eth_call of escrow calldata returning hex (the wallet or the Settings RPC in the page, a JSON-RPC URL in cli.js).
+// an eth_call of escrow calldata returning hex: the wallet or the Settings RPC. tools/bridge-operator implements the
+// same relay and redeem steps for operators.
 import { equal } from './bytes.js';
 import { batchRef, burnProof, decode, decodeBatch, relayBatch, views } from './bridge.js';
 

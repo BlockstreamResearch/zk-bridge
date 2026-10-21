@@ -78,7 +78,7 @@ jobs:
       - name: Shared protocol vectors
         run: node vectors/record.mjs --check
       # No dependencies to install: node --test over bridge-core/test.
-      - name: Shared browser rules and CLI
+      - name: Browser protocol rules
         run: npm --prefix bridge-core test
       # Typecheck, lint, tests and the production build, from the lockfile.
       - name: React page

@@ -2,7 +2,7 @@
   "name": "liquid-bridge-poc-core",
   "private": true,
   "type": "module",
-  "description": "Sepolia/Liquid testnet bridge protocol modules, instance record and deposit CLI; no dependencies, no build step.",
+  "description": "Browser-side Sepolia/Liquid testnet bridge protocol modules and instance record; no dependencies, no build step.",
   "scripts": {
     "test": "node --test test/*.test.js"
   }

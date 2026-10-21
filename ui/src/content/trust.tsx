@@ -72,7 +72,7 @@ export const SELF_SERVE: SelfServe[] = [
     name: 'relay',
     title: 'Relay Liquid headers to the escrow',
     body: 'You can send them from a redemption\'s row, or from the deposit form when relaying is all that keeps deposits closed. The page sends batches of up to 100 headers, and the escrow checks Liquid\'s block signatures in each, so a relayer cannot lie.',
-    needs: <>A Sepolia wallet and gas. Without the page: <Code>node bridge-core/cli.js relay</Code> builds each batch's calldata from public data.</>,
+    needs: <>A Sepolia wallet and gas. Without the page: <Code>bridge-operator relay</Code>, from the repository's <Code>tools/bridge-operator</Code>, builds each batch's calldata from public data.</>,
     here: (s) => on(s, (i) => escrowSays(s, (b) => (
       <>The <Escrow i={i} /> has Liquid's headers up to block {n(b.lcTip)}
         {s.liquid ? `, ${plural(relayLag(s), 'block')} behind the tip the Liquid API reports` : ''}{b.lcTime ? `; the newest is timestamped ${utc(b.lcTime)}` : ''}.
@@ -110,7 +110,7 @@ export const SELF_SERVE: SelfServe[] = [
     body: <>You can submit the proof this page builds from public Liquid data, even for someone else's burn. The escrow pays only the recipient the burn names,
       once per burn output; only that recipient can have it paid elsewhere (<Code>redeemTo</Code>).</>,
     needs: <>The burn's Liquid confirmations, as many as the escrow requires (the page footer shows the number), relayed as above, and a Sepolia wallet and gas.
-      Without the page: <Code>node bridge-core/cli.js redeem</Code>.</>,
+      Without the page: <Code>bridge-operator redeem</Code> (<Code>tools/bridge-operator</Code>).</>,
     here: (s) => on(s, (i) => escrowSays(s, (b) => (
       <>The <Escrow i={i} /> pays a burn once it has {plural(b.minConf, 'Liquid confirmation')}, counted in the blocks relayed to it.</>
     ))),

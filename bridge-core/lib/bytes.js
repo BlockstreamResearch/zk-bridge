@@ -1,4 +1,4 @@
-// Byte helpers shared by the browser app and the Node tools. Uint8Array everywhere; hex without 0x
+// Byte helpers shared by the browser app and the justfile's Node helpers. Uint8Array everywhere; hex without 0x
 // unless a function says otherwise.
 
 export function hexToBytes(hex) {
