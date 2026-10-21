@@ -1,5 +1,5 @@
-// The verification ledger beside the bridge: what the page checked about the instance, and the Settings that choose
-// where it reads.
+// The trays under the bridge: what the page checked about the instance, and the Settings that choose where it reads.
+// Both are closed disclosures, as on the original page.
 import { useState } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { checkRows } from '../bridge/derive';
@@ -8,17 +8,19 @@ import { Button, Field, Seal } from './primitives';
 export function ChecksPanel() {
   const rows = checkRows(useBridge());
   return (
-    <section className="tray checks-tray" aria-labelledby="checks-title">
-      <h2 className="tray-title" id="checks-title">
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
-        Bridge checks
-      </h2>
-      <p className="ledger-key"><Seal ok={true} /> checked by this page <Seal ok={null} /> not checked here</p>
-      <ul className="ledger-rows">
-        {rows.map((r, i) => (
-          <li key={i} data-ok={r.ok === null ? 'none' : String(r.ok)}><Seal ok={r.ok} /><span>{r.text}</span></li>
-        ))}
-      </ul>
+    <section aria-labelledby="checks-title">
+      <details className="tray disclosure" id="checks">
+        <summary>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
+          <span id="checks-title">Bridge checks</span>
+        </summary>
+        <p className="ledger-key"><Seal ok={true} /> checked by this page <Seal ok={null} /> not checked here</p>
+        <ul className="ledger-rows">
+          {rows.map((r, i) => (
+            <li key={i} data-ok={r.ok === null ? 'none' : String(r.ok)}><Seal ok={r.ok} /><span>{r.text}</span></li>
+          ))}
+        </ul>
+      </details>
     </section>
   );
 }

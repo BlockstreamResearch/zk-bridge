@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { type Chip, chips, notice, onSepolia } from '../bridge/derive';
 import { Button } from './primitives';
@@ -51,8 +52,11 @@ export function Masthead({ onTrust }: { onTrust: () => void }) {
   );
 }
 
-/** The proof-of-concept slip: what this is, in one paragraph, after a pill in its own column, so no width puts it over the text. */
-export function Slip() {
+/**
+ * The proof-of-concept slip: what this is, in one paragraph, after a pill in its own column, so no width puts it over
+ * the text; then `children`, the What you are trusting disclosure.
+ */
+export function Slip({ children }: { children: ReactNode }) {
   return (
     <aside className="slip shell" aria-label="Proof of concept">
       <div className="slip-head">
@@ -65,6 +69,7 @@ export function Slip() {
           redemption from this page. Liquid testnet blocks are signed by one key.
         </p>
       </div>
+      {children}
     </aside>
   );
 }

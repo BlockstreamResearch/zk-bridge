@@ -46,7 +46,7 @@ export function App() {
       <Masthead onTrust={() => {
         if (trustRef.current) trustRef.current.open = true;
       }} />
-      <Slip />
+      <Slip><TrustPanel panelRef={trustRef} /></Slip>
       <div className="layout shell">
         <main id="main" tabIndex={-1}>
           <div className="tray bridge-tray">
@@ -89,7 +89,6 @@ export function App() {
           <SettingsPanel />
         </aside>
       </div>
-      <TrustPanel panelRef={trustRef} />
       <Footer onTab={(t) => {
         select(t, true);
         document.getElementById('main')?.scrollIntoView?.({ block: 'start' });

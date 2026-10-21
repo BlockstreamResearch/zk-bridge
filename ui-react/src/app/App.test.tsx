@@ -48,6 +48,36 @@ describe('the page', () => {
   });
 });
 
+describe('the original layout', () => {
+  it('keeps What you are trusting in the proof-of-concept slip, and every tray under the bridge closed', () => {
+    renderPage();
+    const slip = screen.getByRole('complementary', { name: 'Proof of concept' });
+    expect(slip.querySelector('details#trust')).not.toBeNull();
+    for (const id of ['trust', 'update', 'claim', 'checks', 'settings']) {
+      const panel = document.getElementById(id);
+      expect(panel?.tagName, id).toBe('DETAILS');
+      expect((panel as HTMLDetailsElement).open, id).toBe(false);
+    }
+  });
+
+  it('starts the keyboard path with a link that skips to the bridge', async () => {
+    const { user } = renderPage();
+    await user.tab();
+    const skip = screen.getByRole('link', { name: 'Skip to the bridge' });
+    expect(skip).toHaveFocus();
+    expect(skip).toHaveAttribute('href', '#main');
+    expect(document.getElementById('main')).not.toBeNull();
+  });
+
+  it('labels the activity rows\' columns above them', async () => {
+    const { user } = renderPage('activity');
+    await user.click(screen.getByRole('tab', { name: /Activity/ }));
+    const activity = screen.getByRole('tabpanel', { name: /Activity/ });
+    await waitFor(() => expect(activity.querySelector('.table-head + .journeys')).not.toBeNull());
+    expect(activity.querySelector('.table-head')?.textContent).toBe('TypeTransferStartedStatus');
+  });
+});
+
 describe('the deposit form', () => {
   it('enables Send only with a valid address, a valid amount and the acknowledgement', async () => {
     const { user } = renderPage();

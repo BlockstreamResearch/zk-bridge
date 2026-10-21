@@ -218,11 +218,18 @@ export function ActivityPanel({ onClaim }: { onClaim: () => void }) {
   return (
     <>
       <div className="panel-head">
-        <h2>Your bridge activity</h2>
+        <h2 className="tray-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4" /></svg>
+          Your bridge activity
+        </h2>
         <p className="hint">Saved in this browser; tracking resumes after a reload.</p>
       </div>
       {journeys.length
-        ? <JourneyList onClaim={onClaim} />
+        ? <>
+          {/* Column labels for the rows' grid; each row's own text says the same to assistive technology. */}
+          <div className="table-head" aria-hidden="true"><span>Type</span><span>Transfer</span><span>Started</span><span>Status</span></div>
+          <JourneyList onClaim={onClaim} />
+        </>
         : <p className="empty">Nothing yet. Deposits and redemptions you start here are saved in this browser.</p>}
     </>
   );
