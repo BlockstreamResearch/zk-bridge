@@ -125,6 +125,82 @@ def lines(path):
 
 
 @unittest.skipIf(JUST is None, 'just is not installed')
+class ProverSetup(unittest.TestCase):
+    """The first-run installer uses one pinned local CLI and never changes a system installation."""
+
+    def run_setup(self, version='', docker=True, install=True, installed_version='6.8.1'):
+        with tempfile.TemporaryDirectory(prefix='prover-setup-') as tmp:
+            tmp = Path(tmp)
+            cargo = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with open(os.environ['SETUP_LOG'], 'a') as log:
+    log.write(json.dumps([args, os.environ.get('SP1_SKIP_PROGRAM_BUILD')]) + '\n')
+installed = Path(os.environ['BRIDGE_WORK']) / 'sp1' / 'installed'
+if args == ['prove', '--version']:
+    version = os.environ['INSTALLED_VERSION'] if installed.exists() else os.environ['INITIAL_VERSION']
+    if not version:
+        sys.exit(1)
+    print('cargo-prove ' + version)
+elif args[0] == 'install':
+    if os.environ['INSTALL_OK'] != 'yes':
+        sys.exit('installation failed')
+    installed.parent.mkdir(parents=True, exist_ok=True)
+    installed.touch()
+elif args[0] != 'build' and args[:2] != ['prove', 'build']:
+    sys.exit('unexpected cargo arguments')
+'''
+            bin_ = stand_ins(tmp, {
+                'cargo': cargo, 'go': '#!/bin/sh\nexit 0\n', 'protoc': '#!/bin/sh\nexit 0\n',
+                'docker': '#!/bin/sh\nexit ' + ('0' if docker else '1') + '\n',
+            })
+            env = {**os.environ, 'PATH': f'{bin_}:{os.environ["PATH"]}', 'BRIDGE_WORK': str(tmp / 'work'),
+                   'SETUP_LOG': str(tmp / 'log'), 'INITIAL_VERSION': version,
+                   'INSTALLED_VERSION': installed_version, 'INSTALL_OK': 'yes' if install else 'no'}
+            result = subprocess.run([JUST, 'prover'], cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+            return result, lines(tmp / 'log'), tmp / 'work'
+
+    def test_first_run_installs_pinned_cli_locally_before_building(self):
+        result, log, work = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        install = log[1][0]
+        self.assertEqual(install, ['install', '--locked', '--git', 'https://github.com/succinctlabs/sp1',
+                                  '--rev', 'c84ada1ed5911f28c4d3c9d0ed2f9e6cd7edb824',
+                                  '--root', str(work / 'sp1'), '--force', 'sp1-cli'])
+        self.assertEqual(log[3][0][0], 'build')
+        self.assertEqual(log[3][1], 'true')  # host uses Helios's pinned ELFs
+        self.assertEqual(log[4][0][:2], ['prove', 'build'])
+        self.assertIn('--docker', log[4][0])
+        self.assertIn('v6.8.1', log[4][0])
+
+    def test_matching_cli_is_reused_without_installing(self):
+        for version in ('6.8.1', 'sp1 (c84ada1 2026-09-24T18:50:34Z)'):
+            with self.subTest(version=version):
+                result, log, _ = self.run_setup(version=version)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(any(args[0] == 'install' for args, _ in log))
+
+    def test_other_cli_version_installs_local_pin(self):
+        result, log, _ = self.run_setup(version='6.8.10')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(log[1][0][0], 'install')
+
+    def test_unavailable_docker_stops_before_installation(self):
+        result, log, _ = self.run_setup(docker=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('start Docker', result.stderr)
+        self.assertEqual(log, [])
+
+    def test_failed_or_wrong_installation_never_builds(self):
+        for options in ({'install': False}, {'installed_version': '6.9.0'}):
+            with self.subTest(options=options):
+                result, log, _ = self.run_setup(**options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(args[0] == 'build' or args[:2] == ['prove', 'build'] for args, _ in log))
+
+
+@unittest.skipIf(JUST is None, 'just is not installed')
 @unittest.skipIf(not (INSTANCE / 'manifest.json').exists(), f'{INSTANCE} is not a deployed record')
 class ProofInputs(unittest.TestCase):
     def setUp(self):

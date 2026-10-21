@@ -74,6 +74,8 @@ TX_BIN := "tools/sg16/bridge-guest/target/testnet-tx/release/sg16-testnet"
 WALLET_BIN := "tools/sg16/liquid-testnet-wallet/target/release/sg16-liquid-testnet-wallet"
 BRIDGE_HOST_BIN := "tools/sg16/bridge-guest/target/release/sg16-bridge-host"
 OPERATOR_BIN := "tools/bridge-operator/target/release/bridge-operator"
+# SP1 v6.8.1. Install this source revision, rather than whichever release sp1up currently selects.
+SP1_CLI_REV := "c84ada1ed5911f28c4d3c9d0ed2f9e6cd7edb824"
 
 # Shell helpers shared by the recipes below. Values reach them only as environment variables, never by
 # interpolation into the script text.
@@ -429,21 +431,36 @@ tools:
 # Build the prover host without Docker or the SP1 cargo-prove tool.
 [group('build')]
 host:
-    cargo build --release --locked --manifest-path tools/sg16/bridge-guest/Cargo.toml -p sg16-bridge-host
+    SP1_SKIP_PROGRAM_BUILD=true cargo build --release --locked --manifest-path tools/sg16/bridge-guest/Cargo.toml -p sg16-bridge-host
 
-# Build the guest ELF in the pinned SP1 Docker image (into BRIDGE_WORK/elf) and the prover host. Proof only.
+# Install the pinned SP1 CLI if needed, then build the host and guest ELF (BRIDGE_WORK/elf). Proof only.
 [group('build')]
 prover:
     #!/usr/bin/env bash
     {{ _prelude }}
-    export PATH="$HOME/.sp1/bin:$PATH"
-    version=$(cargo prove --version 2>/dev/null) || die "install the SP1 cargo-prove tool before building the pinned 6.8.1 guest"
-    # The v6.8.1 release binary prints its Git revision rather than the tag. c84ada1 is refs/tags/v6.8.1.
-    [[ "$version" == *6.8.1* || "$version" == *c84ada1* ]] || die "SP1 cargo-prove 6.8.1 is required; found $version"
+    for tool in cargo docker go protoc; do
+      command -v "$tool" >/dev/null || die "install $tool before running just prover (OPERATOR.md, What you need)"
+    done
+    docker info >/dev/null 2>&1 || die "start Docker and check that docker info works, then run just prover again"
     mkdir -p "$BRIDGE_WORK/elf"
+    work=$(cd "$BRIDGE_WORK" && pwd)
+    export PATH="$work/sp1/bin:$HOME/.sp1/bin:$PATH"
+    sp1_version() {
+      local version
+      version=$(cargo prove --version 2>/dev/null) || return 1
+      # The release binary prints its Git revision rather than the tag.
+      [[ "$version" =~ (^|[^[:alnum:]])(6\.8\.1|c84ada1)([^[:alnum:]]|$) ]]
+    }
+    if ! sp1_version; then
+      echo "installing SP1 6.8.1 in $work/sp1 (once; pinned source, no system installation)"
+      cargo install --locked --git https://github.com/succinctlabs/sp1 --rev "$SP1_CLI_REV" \
+        --root "$work/sp1" --force sp1-cli
+      sp1_version || die "the installed SP1 CLI does not report 6.8.1; see $work/sp1/bin"
+    fi
+    # Build the host first, before Docker can leave root-owned files in the workspace. Helios's pinned ELFs are vendored.
+    just host
     out=$(cd "$BRIDGE_WORK/elf" && pwd)
     (cd tools/sg16/bridge-guest/program && cargo prove build --docker --tag v6.8.1 --locked --workspace-directory ../../../.. --output-directory "$out")
-    just host
     echo "built $out/sg16-bridge-program; next: just check-elf"
 
 # Refuse BRIDGE_ELF unless its SHA-256 and program vkey are the instance's pins. No RPC.
