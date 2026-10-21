@@ -178,7 +178,8 @@ export function UpdatePanel() {
         <li>the light-client store the update moves to. If this site publishes it, as <code className="mono">lc_stores/&lt;head&gt;.json</code> with
           the <code className="mono">lc_preimages.json</code> entry naming the update's transaction id, the panel says so once you load the update.
           Otherwise load your own copy, <code className="mono">proof.store.json</code>, after the update. Only the project's maintainers can publish
-          here; anyone can open a pull request adding these two files for review.</li>
+          here; anyone can open a pull request adding these two files for review. Publication is optional for this Humid route; loading your copy
+          does not publish it.</li>
       </>}
       flow={<>
         <li><b>Input 0:</b> the live state output, spent with the update leaf's witness, which carries the proof. It is final: Humid lists it as not its own

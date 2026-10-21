@@ -4,7 +4,7 @@ import { DEFAULTS, PUBLISHED } from '@bridge/core/config.js';
 export const REPO = PUBLISHED.repo;
 export const SITE = PUBLISHED.site;
 export const OPERATOR = `${REPO}/blob/${PUBLISHED.branch}/OPERATOR.md`;
-export const TAKEOVER = `${OPERATOR}#taking-over-a-stalled-deposit`;
+export const TAKEOVER = `${REPO}/blob/${PUBLISHED.branch}/README.md#quick-guide-to-completing-a-manual-end-to-end-test`;
 export const JUST_STEPS = `${OPERATOR}#the-same-steps-with-just`;
 export const LIMITS = `${OPERATOR}#limits-to-state-plainly`;
 

@@ -118,14 +118,14 @@ export const SELF_SERVE: SelfServe[] = [
   {
     name: 'prove-claim',
     title: 'Prove and claim a finalized deposit',
-    body: 'You can prove and claim your deposit, or someone else\'s, in any order. The covenant checks the proof and pays only the script each deposit committed. This page cannot do it: it runs no prover. Once you have built an update and its light-client store is published here, the page can send it with Humid paying the fee (Send a proven update with Humid, below the bridge).',
+    body: 'You can prove and claim your deposit, or someone else\'s, in any order. The covenant checks the proof and pays only the script each deposit committed. This page runs no prover. Once you have built an update, the page can send it with Humid paying the fee. Load its light-client store from your file if it is not published here; publication is optional. Use Send a proven update with Humid, below the bridge.',
     needs: <>A computer with Docker and the SP1 6.8.1 toolchain (a proof is about 50 million guest cycles), a Sepolia execution RPC that serves <Code>eth_getProof</Code> at
-      the finalized block, a Sepolia beacon node's light-client updates, the anchor store published with this instance for its first proof (and each later store
-      published with its update), a clone of the repository, and a little tL-BTC for the update and claim
-      fees. If a later update has already proven a deposit, only its claim is left, and that needs no prover. <ExtLink href={TAKEOVER}>The steps are in OPERATOR.md</ExtLink>.</>,
+      the finalized block, a Sepolia beacon node's light-client updates, the store at the live head, a clone of the repository, and a little tL-BTC for the update and claim
+      fees. If a later update has already proven a deposit, only its claim is left, and that needs no prover. <ExtLink href={TAKEOVER}>The steps are in the README quick guide</ExtLink>.</>,
     here: (s) => on(s, (i) => (
       <><Code>BRIDGE_INSTANCE={i.record.replace(/\/$/, '')} just status</Code> recovers this instance's state from Liquid and names the next step. The anchor
-        is in <RecordFile i={i} file="instance.json" />, and each published light-client store is listed in <RecordFile i={i} file="lc_preimages.json" />.</>
+        is in <RecordFile i={i} file="instance.json" />, and each light-client store published here is listed in <RecordFile i={i} file="lc_preimages.json" />.
+        You can also use a shared store file, or reconstruct it while the required Beacon data remains available.</>
     )),
   },
   {
@@ -232,7 +232,7 @@ export const ASSUMPTIONS: Assumption[] = [
     body: 'After Ethereum finality someone must prove your deposit to Liquid and claim it. Until then your ETH stays in the escrow, with no refund. The covenant checks the proof and pays only the script you committed, so an operator can delay a claim but not redirect it. It accepts both steps from anyone.',
     here: (s) => <>{on(s, (i) => <>Deposits to the <Escrow i={i} /> wait for someone to prove and claim them.</>, 'So no deposit has been proven or claimed.')} This
       page and its static host run no prover or background relay or fork check; you can submit the relay and fork-check transactions from the page. Anyone can
-      prove and claim a finalized, unclaimed deposit by following <ExtLink href={TAKEOVER}>OPERATOR.md</ExtLink>.</>,
+      prove and claim a finalized, unclaimed deposit by following <ExtLink href={TAKEOVER}>the README quick guide</ExtLink>.</>,
   },
   {
     title: 'Someone to keep deposits open.',
@@ -246,8 +246,8 @@ export const ASSUMPTIONS: Assumption[] = [
     title: 'Public records, including the light-client store.',
     body: 'Liquid holds only hashes of the bridge state. Whoever proves next needs the state\'s fields and the full light-client store behind them, and must find both in public data.',
     here: (s) => <>{on(s, (i) => (
-      <><RecordFile i={i} file="lc_preimages.json" /> lists each light-client store this site publishes, before the update that reaches it is sent. While it is
-        missing a later head, its updater did not publish the store needed by the next proof. The first proof starts from the anchor store in this instance.</>
+      <><RecordFile i={i} file="lc_preimages.json" /> lists each light-client store this site publishes. A missing entry does not mean nobody has shared the
+        store elsewhere. The first proof starts from the anchor store in this instance.</>
     ), 'No update has been made on it, so its live state is the one its bootstrap creates, at the anchor. Its first proof starts from the published anchor store.')} The
       tools refuse a store unless it hashes to the state on Liquid. The covenant cannot enforce publication. If an updater withholds a later store, anyone can
       reconstruct it from a matching public beacon header and sync-committee update while those are available, or use archived proof inputs. Once those sources

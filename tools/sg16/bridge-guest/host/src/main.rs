@@ -33,8 +33,8 @@
 //! committee (the guest drops it).  Everything in it is public beacon-chain data, and it is checked only by
 //! hashing: the roots are recomputed from `store_cbor` and must give `lc`.  A beacon node serves an equivalent
 //! store only as a light-client bootstrap at that checkpoint, which nodes stop serving once they prune its state;
-//! the operator publishes the file (instances/<name>/lc_stores/<head>.json) before broadcasting the update
-//! that reaches <head>.
+//! share the file with the next prover or publish it as instances/<name>/lc_stores/<head>.json. The Humid route
+//! accepts a local store file; just broadcast requires publication and readback before sending a signed update.
 //!
 //!   SEPOLIA_CONSENSUS_RPC=... \
 //!   sg16-bridge-host reconstruct (--state <state.json> | --head <slot> --lc <0x32 bytes>) --out <store.json>
@@ -592,7 +592,7 @@ async fn run_cmd(args: &[String]) -> Result<()> {
     let store_path = Path::new(&pos[1]).with_extension("store.json");
     write_store(&store_path, &store, STORE_ABOUT)?;
     println!(
-        "successor store (publish before broadcasting an update from this artifact): {}",
+        "successor store (load with the update in Humid; share or publish for the next prover): {}",
         store_path.display()
     );
     let pk = client

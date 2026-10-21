@@ -79,7 +79,7 @@ export function App() {
               <h2 id="sends-title">Finish a deposit yourself</h2>
               <p className="hint">For a deposit still waiting on Liquid. An update proves finalized deposits, then a claim pays each one, in any order; if
                 an update already covers yours, only its claim is left. Build either on your computer with the repository tools
-                (<ExtLink href={TAKEOVER}>the OPERATOR.md guide</ExtLink>), then load the file below and Humid pays only the fee.</p>
+                (<ExtLink href={TAKEOVER}>the README quick guide</ExtLink>), then load the file below and Humid pays only the fee.</p>
             </div>
             <UpdatePanel />
             <ClaimPanel panelRef={claim.panelRef} fileRef={claim.fileRef} />

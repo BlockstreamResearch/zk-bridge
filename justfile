@@ -693,9 +693,9 @@ execute: check-elf
     check_inputs
     "$BRIDGE_HOST_BIN" run --elf "$BRIDGE_ELF" "$BRIDGE_WORK/inputs.cbor" "$BRIDGE_WORK/execute.json"
 
-# Make and SDK-verify a Groth16 proof (Docker; minutes to hours), then check it against the state.
+# Make and SDK-verify a Groth16 proof with the native CPU prover, then check it against the state.
 [group('prove')]
-[confirm("Generate an SP1 Groth16 proof now? It needs Docker and minutes to hours of CPU. [y/N]")]
+[confirm("Generate an SP1 Groth16 proof now? It needs minutes to hours of CPU. [y/N]")]
 prove: check-elf
     #!/usr/bin/env bash
     {{ _prelude }}
@@ -838,10 +838,11 @@ update-unsigned txid vout: (_humid-site "update") recover
     JS
     id=$(txid_of "$w/update.hex")
     meta "$w/update.hex" kind=update-unsigned txid="$id" state="$st_id" parents="$st_id,$txid" new_state="$w/update.new_state.json"
-    echo "unsigned update $id to head $(jget "$w/update.new_state.json" head). Do not upload it yet:"
-    echo "next: just stage-store unsigned; publish the store and lc_preimages.json on this site's instance record, then load $w/update.hex into the page"
+    echo "unsigned update $id to head $(jget "$w/update.new_state.json" head)"
+    echo "next: load $w/update.hex and $w/proof.store.json into the page's Humid update panel"
+    echo "publication is optional for Humid; share the store with the next prover, or prepare it for publication with just stage-store unsigned"
 
-# Write the chosen update's store and lc_preimages.json entry into the instance (working tree only; you review and publish).
+# Prepare store files for publication. Optional for Humid; required before just broadcast of a signed update.
 [group('publish')]
 stage-store mode="signed":
     #!/usr/bin/env bash
@@ -927,7 +928,11 @@ stage-store mode="signed":
         pre["preimages"].append(entry)
         pre_path.write_text(json.dumps(pre, indent=1) + "\n")
     print(f"staged {dst} and the {pre_path} entry for head {entry['head']}, update {entry['update']}")
-    print("next: review git diff, publish both files, read them back, then send the update")
+    if meta["kind"] == "update-unsigned":
+        print("publication is optional for Humid: load update.hex and proof.store.json from the work directory into the page")
+        print("to publish for the next prover: review git diff, publish both files, then read them back")
+    else:
+        print("next: review git diff, publish both files, read them back, then just broadcast the signed update")
     PY
     RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test bridge-core/test/lc-store.test.js
 
@@ -1028,7 +1033,7 @@ preflight file:
     m="$file.meta.json"; kind=$(jget "$m" kind)
     case "$kind" in
       split|update|claim|bootstrap) ;;
-      update-unsigned) die "$file has no fee signature; load it into the published site's Humid update panel after publishing its store" ;;
+      update-unsigned) die "$file has no fee signature; load it and $BRIDGE_WORK/proof.store.json into the site's Humid update panel; publication is optional there" ;;
       claim-unsigned) die "$file has no fee signature; load it into the published site's Claim a proven deposit with Humid panel" ;;
       *) die "$file.meta.json names unsupported transaction kind $kind" ;;
     esac
@@ -1522,8 +1527,8 @@ deploy-record:
     # the update transaction that reached their head (stage-store, stage-recovered).
     rel = f"lc_stores/{a['slot']}.json"
     preimages = {
-        "about": "The starting store is public. Publish every successor store and the transaction ID of the update that "
-                 "reached it before broadcasting that update.",
+        "about": "The starting store is public. Share or publish every successor store for the next prover. "
+                 "Humid accepts a local store file; just broadcast requires publication and readback first.",
         "preimages": [{"head": a["slot"], "header": hx(a["header"]), "committee": hx(a["committee"]), "store": rel}],
     }
     # Exclusive creation throughout: nothing already in the record is replaced, even if it appeared since the
