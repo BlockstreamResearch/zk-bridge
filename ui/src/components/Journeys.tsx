@@ -41,7 +41,10 @@ function JourneyRow({ j, kind, title, steps, extras, actions }: {
     }}>
       <summary>
         <span className="journey-kind" data-kind={j.kind}>{kind}</span>
-        <span className="journey-title">{title}</span>
+        <span className="journey-title">
+          {j.kind === 'deposit' && j.index != null ? <span className="journey-deposit-number">Deposit #{j.index}</span> : null}
+          <span>{title}</span>
+        </span>
         <span className="journey-meta">{new Date(j.created).toLocaleString()}</span>
         {/* Keyed by status, so a change replays the pill's arrival. */}
         <Pill key={j.status} tone={tone}>{text}</Pill>
