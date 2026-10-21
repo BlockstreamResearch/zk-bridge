@@ -7,7 +7,8 @@
 import { prepareClaim, type ClaimPlan } from '@bridge/core/lib/claim.js';
 import { type Humid, broadcastMatches, burnWithHumid } from '@bridge/core/lib/humid.js';
 import { prepareUpdate, type UpdatePlan } from '@bridge/core/lib/update.js';
-import { hexToBytes } from '@bridge/core/lib/bytes.js';
+import { bigToBytes, bytesToHex, concat, hexToBytes, utf8 } from '@bridge/core/lib/bytes.js';
+import { sha256 } from '@bridge/core/lib/hash.js';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -92,13 +93,25 @@ const claimPlan = {
   claim: { txid: TXID, ...outpoints, successor: { script: new Uint8Array(34) },
     mint: { script: hexToBytes('0014' + '11'.repeat(20)), units: 250_000n, asset: new Uint8Array(32), address: DEPOSIT_ADDRESS } },
 } as unknown as ClaimPlan;
+/**
+ * A light-client store file at `head`, as sg16-bridge-host writes it: made-up roots, their lc
+ * (SHA256(SHA256('liquid-bridge-poc/lc') || be64(head) || header || committee), lib/update.js lcOf), a made-up store.
+ */
+function storeAt(head: number, label: string) {
+  const header = label.repeat(32);
+  const committee = `${label[1]}${label[0]}`.repeat(32);
+  const lc = bytesToHex(sha256(concat(sha256(utf8('liquid-bridge-poc/lc')), bigToBytes(BigInt(head), 8), hexToBytes(header), hexToBytes(committee))));
+  return { head, header, committee, lc, store_cbor: '0xa0' };
+}
+const STORE = storeAt(9_000_000, 'a1');
 const updatePlan = {
-  txid: TXID, ...signing, head: 9_000_000, store: 'lc_stores/9000000.json',
+  txid: TXID, ...signing, successor: { head: STORE.head, lc: STORE.lc }, listed: 'lc_stores/9000000.json',
+  store: { where: 'site', path: 'lc_stores/9000000.json' },
   update: { txid: TXID, ...outpoints, successor: { script: new Uint8Array(34) } },
 } as unknown as UpdatePlan;
 
 /** A controller with `kind`'s file loaded (its plan given), a mock Liquid API and a Humid answering `answer`. */
-async function loaded(kind: 'liquidClaim' | 'liquidUpdate', answer: (liquid: { has: Has }) => Promise<unknown>) {
+async function loaded(kind: 'liquidClaim' | 'liquidUpdate', answer: (liquid: { has: Has }) => Promise<unknown>, update = updatePlan) {
   const f = fixture('connected');
   const liquid = liquidApi(f);
   const { humid, asked } = mockHumid(() => answer(liquid));
@@ -106,7 +119,7 @@ async function loaded(kind: 'liquidClaim' | 'liquidUpdate', answer: (liquid: { h
   // lib/update.js reads the record only on an https page.
   f.env.siteHref = () => 'https://bridge.example/';
   vi.mocked(prepareClaim).mockResolvedValue(claimPlan);
-  vi.mocked(prepareUpdate).mockResolvedValue(updatePlan);
+  vi.mocked(prepareUpdate).mockResolvedValue(update);
   const c = new BridgeController(f.instance, f.env);
   await c.loadFile(kind, { size: 4, text: async () => 'abcd' });
   expect(c.getSnapshot()[kind].plan).not.toBeNull();
@@ -261,6 +274,65 @@ describe('the claim panel', () => {
     expect(await claim.findByText(/is confirmed on Liquid in block 2,664,001, as the Liquid API reports/)).toBeInTheDocument();
     expect(claim.getByRole('button', { name: 'Sign and send with Humid', hidden: true })).toBeDisabled();
     expect(asked.sign).toBe(1);
+  });
+});
+
+describe('the update panel', () => {
+  async function opened(update: UpdatePlan) {
+    const ctx = await loaded('liquidUpdate', broadcasts('confirmed'), update);
+    const user = userEvent.setup();
+    render(<BridgeProvider controller={ctx.c}><App /></BridgeProvider>);
+    const tray = within(document.getElementById('update')!);
+    const send = () => tray.getByRole('button', { name: 'Sign and send with Humid', hidden: true });
+    const fact = () => tray.getByRole('row', { name: /^Store/, hidden: true });
+    const updateState = () => ctx.c.getSnapshot().liquidUpdate;
+    return { ...ctx, user, tray, send, fact, updateState };
+  }
+
+  const json = (name: string, text: string) => {
+    const file = new File([text], name, { type: 'application/json' });
+    // JSDOM's File lacks the browser's text() method.
+    Object.defineProperty(file, 'text', { value: async () => text });
+    return file;
+  };
+
+  it('sends an update whose store this site does not publish only once the sender loads that store', async () => {
+    const { user, tray, send, fact, asked, updateState } = await opened({ ...updatePlan, listed: null, store: null });
+    expect(fact()).toHaveTextContent('none yet: this site does not publish it. Load the file below');
+    expect(send()).toBeDisabled();
+    expect(tray.getByText(/^Load the store this update moves to first/)).toBeInTheDocument();
+    const store = tray.getByLabelText(/The store this update moves to/);
+
+    await user.upload(store, json('proof.store.json', 'not json'));
+    expect(await tray.findByText('Not this update\'s store: proof.store.json is not a store file.')).toBeInTheDocument();
+    expect(send()).toBeDisabled();
+
+    await user.upload(store, json('proof.store.json', JSON.stringify(storeAt(9_000_064, 'b2'))));
+    expect(await tray.findByText(/proof\.store\.json is the store at slot 9,000,064 .*, not the one at slot 9,000,000/)).toBeInTheDocument();
+    expect(updateState().plan?.store).toBeNull();
+    expect(send()).toBeDisabled();
+
+    await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
+    await waitFor(() => expect(fact()).toHaveTextContent('from your file proof.store.json, which hashes to the lc in the update\'s witness'));
+    expect(tray.queryByText(/Not this update's store/)).toBeNull();
+    expect(updateState().plan?.store).toMatchObject({ where: 'file', entry: { head: STORE.head, update: TXID, store: 'lc_stores/9000000.json' } });
+    expect(send()).toBeEnabled();
+    await user.click(send());
+    expect(await tray.findByText(/is confirmed on Liquid in block 2,664,001/)).toBeInTheDocument();
+    expect(asked.sign).toBe(1);
+  });
+
+  it('asks for no file when this site publishes the store', async () => {
+    const { tray, send, fact } = await opened(updatePlan);
+    expect(fact()).toHaveTextContent('published on this site, lc_stores/9000000.json');
+    expect(tray.queryByLabelText(/The store this update moves to/)).toBeNull();
+    expect(send()).toBeEnabled();
+  });
+
+  it('does not count a store this page\'s record lists when the page is not the published site', async () => {
+    const { send, fact } = await opened({ ...updatePlan, store: null });
+    expect(fact()).toHaveTextContent('this page\'s record lists lc_stores/9000000.json, but only the published site\'s record counts');
+    expect(send()).toBeDisabled();
   });
 });
 

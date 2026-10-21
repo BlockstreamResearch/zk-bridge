@@ -44,7 +44,7 @@ export function sentReport(what: 'update' | 'claim', s: LiquidSent): string {
     + `If it never does, load ${what}.hex again to send it: the page checks Liquid first.${explorer}`;
 }
 
-function SendPanel<P extends { txid: string }>({ kind, title, icon, intro, needs, flow, fileLabel, fileHelp, send, facts, approval, done, panelRef, fileRef }: {
+function SendPanel<P extends { txid: string }>({ kind, title, icon, intro, needs, flow, fileLabel, fileHelp, send, facts, missing, approval, done, panelRef, fileRef, children }: {
   kind: 'liquidUpdate' | 'liquidClaim';
   title: string;
   icon: ReactNode;
@@ -55,11 +55,15 @@ function SendPanel<P extends { txid: string }>({ kind, title, icon, intro, needs
   fileHelp: string;
   send: LiquidSend<P>;
   facts: (plan: P) => [string, string][];
+  /** What the loaded file still needs before Humid may be asked, or '' once it needs nothing. */
+  missing?: (plan: P) => string;
   approval: (plan: P) => string;
   /** What to say once the Liquid API has it (`sent.where` is 'mempool' or 'confirmed'). */
   done: (plan: P, sent: LiquidSent) => ReactNode;
   panelRef?: RefObject<HTMLDetailsElement | null>;
   fileRef?: RefObject<HTMLInputElement | null>;
+  /** Shown below the facts: what the loaded file still needs. */
+  children?: ReactNode;
 }) {
   const s = useBridge();
   const c = useController();
@@ -68,9 +72,11 @@ function SendPanel<P extends { txid: string }>({ kind, title, icon, intro, needs
   const what = kind === 'liquidUpdate' ? 'update' : 'claim';
   const confirmed = sent?.where === 'confirmed';
   const checked = sent ? ` Last checked ${new Date(sent.checkedAt).toLocaleTimeString()}.` : '';
+  // Once Humid has answered, nothing is missing: the button only asks Liquid again.
+  const needed = plan && !sent ? missing?.(plan) ?? '' : '';
   const hint = note || (!s.instance ? 'No bridge instance is deployed yet.'
     : sent ? `${SENT_HINTS[sent.where]}${confirmed ? '' : checked}`.trim()
-      : plan ? 'Ready. Humid may ask twice; before signing, compare its approval with the line below.' : `Load ${what}.hex first.`);
+      : needed || (plan ? 'Ready. Humid may ask twice; before signing, compare its approval with the line below.' : `Load ${what}.hex first.`));
   // Once Humid has answered, the button only asks Liquid again: Humid is never asked to send the same file twice.
   const label = busy && plan ? 'Working…' : sent && !confirmed ? 'Check on Liquid again' : 'Sign and send with Humid';
   const report = [sent ? sentReport(what, sent) : '', error].filter(Boolean).join(' ');
@@ -94,8 +100,9 @@ function SendPanel<P extends { txid: string }>({ kind, title, icon, intro, needs
           <p className="error" id={`${id}-error`} role="alert">{fileError}</p>
         </div>
         <div aria-live="polite">{plan && <Facts caption={title} rows={facts(plan)} />}</div>
+        {children}
         <div className="actions">
-          <Button variant="primary" disabled={busy || !plan || confirmed} onClick={() => void c.sendFile(kind)}>{label}</Button>
+          <Button variant="primary" disabled={busy || !plan || confirmed || !!needed} onClick={() => void c.sendFile(kind)}>{label}</Button>
           <Hint live>{hint}</Hint>
         </div>
         {plan && !sent && <p className="warn approval">{approval(plan)}</p>}
@@ -117,8 +124,45 @@ const inBlock = (sent: LiquidSent) => (sent.where === 'confirmed' && sent.height
 
 const sendTx = (txid: string) => <ExtLink href={`${DEFAULTS.liquidExplorer}/tx/${txid}`}>{txid.slice(0, 6)}…{txid.slice(-6)}</ExtLink>;
 
+/** Where the store the loaded update moves to comes from (lib/update.js prepareUpdate, withStore). */
+function storeFact(plan: UpdatePlan): string {
+  const { store, listed } = plan;
+  if (store?.where === 'site') return `published on this site, ${store.path}`;
+  if (store?.where === 'file') return `from your file ${store.name}, which hashes to the lc in the update's witness`;
+  return listed ? `none yet: this page's record lists ${listed}, but only the published site's record counts. Load the file below`
+    : 'none yet: this site does not publish it. Load the file below';
+}
+
+const STORE_MISSING = 'Load the store this update moves to first: this site does not publish it, and the next prover needs it.';
+
+/**
+ * The sender's own store, for an update whose store this site does not publish (controller.loadStore). The page
+ * accepts it only if it hashes to the lc in the update's witness, and reads nothing else from it.
+ */
+function StoreField({ plan }: { plan: UpdatePlan }) {
+  const s = useBridge();
+  const c = useController();
+  const id = useId();
+  const { busy, sent, storeError } = s.liquidUpdate;
+  if (plan.store?.where === 'site') return null;
+  return (
+    <div className="field">
+      <label htmlFor={`${id}-store`}>The store this update moves to, <code className="mono">proof.store.json</code></label>
+      <input id={`${id}-store`} type="file" accept=".json,application/json" disabled={busy || !!sent}
+        aria-describedby={`${id}-store-help ${id}-store-error`} aria-invalid={storeError ? true : undefined}
+        onChange={(e) => void c.loadStore(e.target.files?.[0] ?? null)} />
+      <p className="help" id={`${id}-store-help`}>
+        <code className="mono">just prove</code> writes it beside the proof, in <code className="mono">target/takeover/</code>. It stays in this browser.
+        Keep it: the next prover starts from it, so publish it, here by pull request or anywhere public.
+      </p>
+      <p className="error" id={`${id}-store-error`} role="alert">{storeError}</p>
+    </div>
+  );
+}
+
 export function UpdatePanel() {
   const s = useBridge();
+  const plan = s.liquidUpdate.plan;
   return (
     <SendPanel<UpdatePlan> kind="liquidUpdate" title="Send a proven update with Humid" icon={<UploadIcon />} send={s.liquidUpdate}
       intro={<p className="help">Finalized deposits reach Liquid in an update, a transaction carrying an SP1 proof that the covenant checks. This page runs no
@@ -131,9 +175,10 @@ export function UpdatePanel() {
         <li>the update built against that coin, unsigned: after proving locally, run <code className="mono">just update-unsigned &lt;Humid fee txid&gt; &lt;output number&gt;</code>.
           It writes <code className="mono">target/takeover/update.hex</code> without signing or sending it. The <ExtLink href={JUST_STEPS}>short operator
           commands</ExtLink> cover the proof, update and store;</li>
-        <li>its light-client store published on this site: <code className="mono">lc_stores/&lt;head&gt;.json</code> and the <code className="mono">lc_preimages.json</code> entry
-          naming the update's transaction id, which this panel shows once you load the file. Only the project's maintainers can publish here. Anyone can
-          open a pull request adding these two files for review. Until they are published, follow OPERATOR.md instead.</li>
+        <li>the light-client store the update moves to. If this site publishes it, as <code className="mono">lc_stores/&lt;head&gt;.json</code> with
+          the <code className="mono">lc_preimages.json</code> entry naming the update's transaction id, the panel says so once you load the update.
+          Otherwise load your own copy, <code className="mono">proof.store.json</code>, after the update. Only the project's maintainers can publish
+          here; anyone can open a pull request adding these two files for review.</li>
       </>}
       flow={<>
         <li><b>Input 0:</b> the live state output, spent with the update leaf's witness, which carries the proof. It is final: Humid lists it as not its own
@@ -145,19 +190,23 @@ export function UpdatePanel() {
           the record names.</li>
       </>}
       fileLabel={<>The unsigned update, <code className="mono">update.hex</code></>}
-      fileHelp="The file stays in this browser. Before Humid is asked anything, the page checks it against this site's instance record and the Liquid API: this instance's update leaf, the published store, and coins that are confirmed and unspent."
+      fileHelp="The file stays in this browser. Before Humid is asked anything, the page checks it against this site's instance record and the Liquid API: this instance's update leaf, the store it moves to, and coins that are confirmed and unspent."
       facts={(plan) => [
         ['Transaction', plan.txid],
-        ['Light-client head', `slot ${plan.successor.head.toLocaleString('en')}; store ${plan.store?.where === 'site' ? 'published here' : 'loaded from your file'}`],
+        ['Light-client head', `slot ${plan.successor.head.toLocaleString('en')}`],
+        ['Store', storeFact(plan)],
         ['Spends', `state output ${plan.update.state.txid}:${plan.update.state.vout}, and your open coin ${plan.update.fee.txid}:${plan.update.fee.vout}`],
         ['Pays', `the successor state, to ${plan.successorAddress}, and a fee of ${plan.update.fee.sats} sats (${formatUnits(plan.update.fee.sats, 8)} tL-BTC): the whole coin`],
       ]}
+      missing={(plan) => (plan.store ? '' : STORE_MISSING)}
       approval={updateApproval}
       done={(_plan, sent) => (sent.where === 'confirmed'
         ? <>Update {sendTx(sent.txid)} is confirmed on Liquid{inBlock(sent)}, as the Liquid API reports. The deposits it proves can now be claimed, in any order
           (OPERATOR.md, step 5).</>
         : <>The Liquid API has update {sendTx(sent.txid)}, not confirmed yet; it should confirm within a minute or two. Then the deposits it proves can be
-          claimed, in any order (OPERATOR.md, step 5).</>)} />
+          claimed, in any order (OPERATOR.md, step 5).</>)}>
+      {plan && <StoreField key={plan.txid} plan={plan} />}
+    </SendPanel>
   );
 }
 
