@@ -1,4 +1,4 @@
-# Routine deterministic checks of the repository (CONCEPT.md, "Build and test"), on each push to main and each pull request.
+# Routine deterministic checks of the repository (CONCEPT.md, "Build and test"), on each push to main or master and each pull request.
 # It deploys nothing and reads no chain: publishing stays with pages.yml, run by hand. Jobs fetch pinned public
 # dependencies, but their checks do not depend on live RPC or Esplora responses.
 #
@@ -18,7 +18,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
   # Lets another workflow run these checks first; this workflow itself deploys nothing.
   workflow_call:

@@ -18,7 +18,7 @@ name: Slow deterministic checks
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, master]
     paths-ignore: ['ui/**', '**.md']
   pull_request:
     paths-ignore: ['ui/**', '**.md']
