@@ -5,8 +5,8 @@
 mod common;
 
 use common::{manifest_params, published_manifests};
-use liquid_bridge_poc::claim::*;
-use liquid_bridge_poc::crypto::sha;
+use zk_bridge::claim::*;
+use zk_bridge::crypto::sha;
 
 use simplicity::elements::{
     confidential::{Asset, Value},

@@ -116,6 +116,8 @@ describe('On this instance, from its pins and what the page checked', () => {
     expect(h['A burn\'s exact script.']).toContain(`, and the asset is ${ASSET_SHORT}`);
     expect(h['prove-claim']).toMatch(/BRIDGE_INSTANCE=instances\/fixture-instance just status/);
     expect(h['What this page reads, and this page itself.']).toMatch(/your wallet's RPC[\s\S]*Blockstream's public API[\s\S]*only the instance fixture-instance/);
+    // The fixture is served from this computer, not from the published site.
+    expect(h['What this page reads, and this page itself.']).toMatch(/This copy is not the published site named at the top of the page, so no store its record lists counts as published\./);
 
     const hrefs = [...page.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`https://sepolia.etherscan.io/address/${ESCROW}`);

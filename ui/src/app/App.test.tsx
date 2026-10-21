@@ -1,5 +1,6 @@
 // The whole page against the fixture, as a reader uses it: readings, tabs, the deposit form's gates, step 2's burn and
 // Humid approval line, and Settings.
+import { PUBLISHED } from '@bridge/core/config.js';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -8,8 +9,9 @@ import { BridgeController } from '../bridge/controller';
 import { ACCOUNT_CHECKSUMMED, DEPOSIT_ADDRESS, fixture, type Scenario } from '../dev/fixture';
 import { App } from './App';
 
-function renderPage(scenario: Scenario = 'connected') {
+function renderPage(scenario: Scenario = 'connected', site?: string) {
   const f = fixture(scenario);
+  if (site) f.env.siteHref = () => site;
   const controller = new BridgeController(f.instance, f.env);
   const user = userEvent.setup();
   const view = render(<BridgeProvider controller={controller}><App /></BridgeProvider>);
@@ -45,6 +47,26 @@ describe('the page', () => {
     expect(await screen.findByText(/No instance of this bridge is published yet/)).toBeInTheDocument();
     expect(screen.getAllByText(/No instance is published yet/).length).toBeGreaterThan(3);
     expect(screen.queryByRole('link', { name: /Escrow on Etherscan/ })).toBeNull();
+  });
+
+  it.each([
+    ['served from this computer', undefined],
+    ['the earlier site', 'https://kyrylr.github.io/liquid-poc-bridge/'],
+    ['another path on the published host', 'https://blockstreamresearch.github.io/zk-bridge-old/'],
+  ])('names the published site at the top when it is %s', (_case, site) => {
+    renderPage('connected', site);
+    const note = screen.getByRole('note');
+    expect(note).toHaveTextContent('This is not the bridge\'s published site.');
+    expect(note).toHaveTextContent('no light-client store it lists counts as published');
+    expect(within(note).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([PUBLISHED.site, PUBLISHED.repo]);
+    // First on the page, before the masthead.
+    expect(document.body.querySelector('.site-notice + .masthead')).not.toBeNull();
+  });
+
+  it('says nothing about other copies on the published site itself', () => {
+    renderPage('connected', `${PUBLISHED.site}`);
+    expect(screen.queryByRole('note')).toBeNull();
+    expect(screen.queryByText(/not the bridge's published site/)).toBeNull();
   });
 });
 

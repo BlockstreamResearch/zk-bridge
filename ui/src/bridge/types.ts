@@ -190,6 +190,11 @@ export interface Message {
 
 export interface BridgeState {
   instance: Instance | null;
+  /**
+   * Whether this page is the published site, config.js PUBLISHED.site (lib/update.js publishes). Any other copy says so
+   * at the top, and its record's stores do not count as published.
+   */
+  published: boolean;
   settings: Settings;
   /** Bumped on each Save or reset, so a Settings form can reset its fields. */
   settingsVersion: number;

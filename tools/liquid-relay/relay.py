@@ -49,7 +49,7 @@ class Esplora:
         last = None
         for attempt in range(4):
             try:
-                req = urllib.request.Request(self.base + path, headers={'User-Agent': 'liquid-poc-bridge relay'})
+                req = urllib.request.Request(self.base + path, headers={'User-Agent': 'zk-bridge relay'})
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     body = resp.read().decode()
                 time.sleep(self.delay)

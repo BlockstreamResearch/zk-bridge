@@ -34,8 +34,10 @@ REBUILT_STORE := BRIDGE_WORK / "reconstructed.store.json"
 LIQUID_ESPLORA := env("LIQUID_ESPLORA", "https://blockstream.info/liquidtestnet/api")
 # Path of the Liquid testnet fee key file. No default: signing recipes refuse to run without it.
 LIQUID_FEE_KEY := env("LIQUID_FEE_KEY", "")
-# Public base URL serving this instance directory, e.g. the Pages site's instances/<name>. An update is
-# broadcast only after its store file and lc_preimages.json are read back from here.
+# An update is broadcast only after its store file and lc_preimages.json are read back from a public HTTPS copy of
+# this instance directory. For the escrow the published site serves, that copy is the published site's record,
+# bridge-core/config.js PUBLISHED.site + instances/<name>, the one the page and the next prover look in; there this
+# is an optional cross-check and must equal it. For any other instance, set it to the URL where you publish.
 STORE_READBACK_URL := env("STORE_READBACK_URL", "")
 # Fee slots and split fee, in sats: the costs recorded so far (OPERATOR.md), not minimums.
 FEE_UPDATE_SATS := env("FEE_UPDATE_SATS", "12000")
@@ -135,6 +137,15 @@ _prelude := '''
     if (bootstrap !== INSTANCE.bootstrap) differ.push(`bootstrap ${short(bootstrap)} is not the site's ${short(INSTANCE.bootstrap)}`);
     if (read('manifest.json').state_tree?.address !== INSTANCE.state) differ.push("manifest state address is not the site's");
     console.log(differ.length ? `not served: ${differ.join('; ')}` : 'served');
+    JS
+    }
+    published_record() {  # the published site's copy of its record if BRIDGE_INSTANCE pins the escrow it serves, else nothing
+      # By escrow, not by directory as site() decides: whatever directory an operator works from, that escrow's
+      # stores are looked for on the published site (bridge-core/config.js PUBLISHED).
+      local e; e=$(escrow)
+      node --input-type=module - "$e" <<'JS' || die "could not read the published site from bridge-core/config.js"
+    const { INSTANCE, PUBLISHED } = await import('./bridge-core/config.js');
+    if (INSTANCE !== null && process.argv[2] === INSTANCE.escrow.toLowerCase()) console.log(`${PUBLISHED.site}instances/${INSTANCE.name}`);
     JS
     }
     site_name() {  # the record the published site serves, instances/<name>, or "no instance"
@@ -393,7 +404,10 @@ config:
     echo "guest ELF       $BRIDGE_ELF"
     echo "esplora         configured"
     echo "fee key path    ${LIQUID_FEE_KEY:-(unset)}"
-    if [ -n "$STORE_READBACK_URL" ]; then echo "store readback  set"; else echo "store readback  unset"; fi
+    r=$(published_record)
+    if [ -n "$r" ]; then echo "store readback  $r (the published site)"
+    elif [ -n "$STORE_READBACK_URL" ]; then echo "store readback  set"
+    else echo "store readback  unset"; fi
     for v in SEPOLIA_EXECUTION_RPC SEPOLIA_CONSENSUS_RPC; do
       if [ -n "${!v:-}" ]; then echo "$v set"; else echo "$v unset"; fi
     done
@@ -755,7 +769,7 @@ update: recover
       || { gate "$w/update.verify.json"; die "the signed update does not verify"; }
     meta "$w/update.signed.hex" kind=update txid="$id" state="$st_id" parents="$st_id,$fee_id" new_state="$w/update.new_state.json"
     echo "signed update $id to head $(jget "$w/update.new_state.json" head). Do not broadcast it yet:"
-    echo "next: just stage-store, publish the store and lc_preimages.json, then STORE_READBACK_URL=<url> just broadcast $w/update.signed.hex"
+    echo "next: just stage-store, publish the store and lc_preimages.json, then just broadcast $w/update.signed.hex (it reads both back from the published site first)"
 
 # Refuse a Humid route before any network read unless the published site serves BRIDGE_INSTANCE: its Humid panels
 # load only that instance's updates and claims.
@@ -1041,10 +1055,18 @@ preflight file:
     if not es or es[0].get("update") != sys.argv[3] or es[0].get("store") != f"lc_stores/{sys.argv[2]}.json":
         sys.exit(f"{sys.argv[1]} has no entry for head {sys.argv[2]} naming update {sys.argv[3]}: run just stage-store")
     ' "$BRIDGE_INSTANCE/lc_preimages.json" "$head" "$id"
-      need_env STORE_READBACK_URL "the public URL of this instance directory, where the store was published"
-      [[ "$STORE_READBACK_URL" == https://* ]] \
-        || die "STORE_READBACK_URL must be a public HTTPS URL; local file and HTTP readback cannot establish publication"
-      store_url=${STORE_READBACK_URL%/}
+      published=$(published_record)
+      if [ -n "$published" ]; then
+        [ -z "$STORE_READBACK_URL" ] || [ "${STORE_READBACK_URL%/}" = "$published" ] \
+          || die "STORE_READBACK_URL is not $published: the page and the next prover look for this escrow's stores only on the published site (bridge-core/config.js PUBLISHED); publish there and unset it"
+        store_url=$published
+      else
+        need_env STORE_READBACK_URL "the public URL of this instance directory, where the store was published; the published site serves only $(site_name)"
+        [[ "$STORE_READBACK_URL" == https://* ]] \
+          || die "STORE_READBACK_URL must be a public HTTPS URL; local file and HTTP readback cannot establish publication"
+        store_url=${STORE_READBACK_URL%/}
+      fi
+      echo "reading the store back from $store_url"
       for f in "lc_stores/$head.json" lc_preimages.json; do
         curl --proto '=https' -fsS --max-time 30 "$store_url/$f" | cmp -s - "$BRIDGE_INSTANCE/$f" \
           || die "the published $f differs from the local $BRIDGE_INSTANCE/$f; publish it before broadcasting the update"

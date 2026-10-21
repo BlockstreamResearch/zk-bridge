@@ -29,9 +29,10 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      # Fails closed before anything else runs: the record must exist, config.js INSTANCE must name it, and
-      # bridge-core/test/live-state.js must pin its live state. The build (vite.config.ts checkRecord) and the tests below then
-      # check that the record pins exactly what INSTANCE hardcodes and reaches that live state.
+      # Fails closed before anything else runs: only config.js PUBLISHED's repository and branch publish the site,
+      # the record must exist, config.js INSTANCE must name it, and bridge-core/test/live-state.js must pin its live
+      # state. The build (vite.config.ts checkRecord) and the tests below then check that the record pins exactly what
+      # INSTANCE hardcodes and reaches that live state.
       - name: Check the published instance record
         run: |
           if [ -L "instances/$RECORD" ] || [ ! -f "instances/$RECORD/instance.json" ]; then
@@ -39,8 +40,13 @@ jobs:
             exit 1
           fi
           node --input-type=module -e '
-            const { INSTANCE } = await import("./bridge-core/config.js");
+            const { INSTANCE, PUBLISHED } = await import("./bridge-core/config.js");
             const { LIVE } = await import("./bridge-core/test/live-state.js");
+            const here = "https://github.com/" + process.env.GITHUB_REPOSITORY;
+            if (here !== PUBLISHED.repo || process.env.GITHUB_REF !== "refs/heads/" + PUBLISHED.branch) {
+              throw new Error("the site is published only from " + PUBLISHED.repo + " branch " + PUBLISHED.branch
+                + " (bridge-core/config.js PUBLISHED), not from " + here + " " + process.env.GITHUB_REF);
+            }
             const record = process.env.RECORD;
             if (INSTANCE?.name !== record) {
               throw new Error("bridge-core/config.js INSTANCE names " + (INSTANCE?.name ?? "no instance")
@@ -74,6 +80,18 @@ jobs:
       - name: Check the staged instance record
         run: RECORD_DIR="$RUNNER_TEMP/site/instances/$RECORD" node --test bridge-core/test/lc-store.test.js
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+        id: pages
+      # The page counts a store as published only at config.js PUBLISHED.site, and the justfile reads stores back
+      # only from there: a custom domain or a renamed repository would publish somewhere neither looks.
+      - name: Check the Pages address
+        env:
+          BASE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          node --input-type=module -e '
+            const { PUBLISHED } = await import("./bridge-core/config.js");
+            if (process.env.BASE_URL.replace(/\/?$/, "/") !== PUBLISHED.site) {
+              throw new Error("Pages publishes at " + process.env.BASE_URL + ", not at " + PUBLISHED.site + " (bridge-core/config.js PUBLISHED)");
+            }'
       - name: Upload static site
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:

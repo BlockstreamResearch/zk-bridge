@@ -19,6 +19,19 @@ export const INSTANCE = parseInstance({
   state: 'tex1ppan2m2xagngp520prm829r8r6l5jwqwe3xye9tw9g0dpkjg4pccsvm0vnk',
 });
 
+/**
+ * Where the bridge is published: its repository, the branch the Pages workflow publishes from, and the GitHub Pages
+ * site that workflow deploys, with INSTANCE's record at instances/<name>/. That site's record is the published one: a
+ * store counts as published only there (lib/update.js publishes), the justfile's preflight reads stores back only
+ * from there, and the Pages workflow refuses to deploy from any other repository or to any other address. A copy of
+ * the page served anywhere else says so and links here.
+ */
+export const PUBLISHED = Object.freeze({
+  repo: 'https://github.com/BlockstreamResearch/zk-bridge',
+  branch: 'master',
+  site: 'https://blockstreamresearch.github.io/zk-bridge/',
+});
+
 export const DEFAULTS = Object.freeze({
   chainId: 11155111n,
   chainName: 'Sepolia',

@@ -1,8 +1,8 @@
 // Where the page links. Every link must be one linkAllowed accepts for the configured record: an in-page anchor, a
-// file of that one record, the repository, or an explorer page. Each repository link must name a file of this
+// file of that one record, the repository, the published site's front page, or an explorer page. Each repository link must name a file of this
 // checkout and a heading it has. Each record file the page links must be in the published record. The page is
 // rendered in each fixture state that shows links.
-import { DEFAULTS, INSTANCE, parseInstance } from '@bridge/core/config.js';
+import { DEFAULTS, INSTANCE, PUBLISHED, parseInstance } from '@bridge/core/config.js';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,7 @@ import { App } from '../app/App';
 import { BridgeProvider } from '../bridge/context';
 import { BridgeController } from '../bridge/controller';
 import { DEPOSIT_ADDRESS, ESCROW, FIXTURE_INSTANCE, type Scenario, fixture } from '../dev/fixture';
-import { JUST_STEPS, LIMITS, OPERATOR, REPO, TAKEOVER, linkAllowed } from './links';
+import { JUST_STEPS, LIMITS, OPERATOR, REPO, SITE, TAKEOVER, linkAllowed } from './links';
 
 // The repository checkout, as a file system path from this file's own location (ui/src/content/), so it does
 // not depend on the working directory npm, Vitest or CI starts in. Only path strings reach node:fs: in the jsdom
@@ -21,7 +21,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /** A path of the checkout, from its root. */
 const inCheckout = (relative: string) => path.join(ROOT, ...relative.split('/'));
 const RECORD = `instances/${FIXTURE_INSTANCE.name}/`;
-const BLOB = `${REPO}/blob/main/`;
+const BLOB = `${REPO}/blob/${PUBLISHED.branch}/`;
 
 /** The anchors GitHub gives a Markdown file's headings; lines inside fenced code are not headings. */
 function headingSlugs(markdown: string): string[] {
@@ -49,7 +49,7 @@ describe('linkAllowed', () => {
   it.each([
     '#main', '#trust',
     `${RECORD}instance.json`, `${RECORD}manifest.json`, `${RECORD}lc_preimages.json`, `${RECORD}lc_stores/9000000.json`, `${RECORD}README.md`,
-    REPO, OPERATOR, TAKEOVER, JUST_STEPS, LIMITS,
+    REPO, OPERATOR, TAKEOVER, JUST_STEPS, LIMITS, SITE,
     `${DEFAULTS.ethExplorer}/address/${ESCROW}`, `${DEFAULTS.ethExplorer}/tx/0x${tx}`,
     `${DEFAULTS.liquidExplorer}/tx/${tx}`, `${DEFAULTS.liquidExplorer}/address/${DEPOSIT_ADDRESS}`,
     'https://sepolia.beaconcha.in',
@@ -76,6 +76,11 @@ describe('linkAllowed', () => {
     ['another host', 'https://evil.example/'],
     ['a look-alike repository', `${REPO}-evil`],
     ['another branch', `${REPO}/blob/other/OPERATOR.md`],
+    ['main, which the site is not published from', `${REPO}/blob/main/OPERATOR.md`],
+    ['the earlier repository', 'https://github.com/KyrylR/liquid-poc-bridge'],
+    ['the earlier site', 'https://kyrylr.github.io/liquid-poc-bridge/'],
+    ['a path of the published site', `${SITE}instances/x/manifest.json`],
+    ['the published site with a query', `${SITE}?tab=redeem`],
     ['a non-canonical path', `${BLOB}../../evil/README.md`],
     ['a non-canonical scheme', REPO.replace('https', 'HTTPS')],
     ['plain http', DEFAULTS.liquidExplorer.replace('https', 'http') + `/tx/${tx}`],

@@ -21,6 +21,13 @@ export interface Instance {
 
 export const INSTANCE: RawInstance | null;
 
+/** The repository, its published branch and its Pages site (ending in '/'), whose instance record is the published one. */
+export const PUBLISHED: Readonly<{
+  repo: string;
+  branch: string;
+  site: string;
+}>;
+
 export const DEFAULTS: Readonly<{
   chainId: bigint;
   chainName: string;

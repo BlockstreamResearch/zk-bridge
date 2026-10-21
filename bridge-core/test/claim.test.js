@@ -326,12 +326,12 @@ test('the manifest is read from this site, uncached, whether or not it is served
       : { ok: false, status: 404, text: async () => '' };
   };
   assert.equal(await siteReader(fetchImpl, 'http://localhost:8080/', 'instances/x/')('manifest.json'), '{}');
-  const missing = await siteReader(fetchImpl, 'https://kyrylr.github.io/liquid-poc-bridge/?tab=redeem#main',
+  const missing = await siteReader(fetchImpl, 'https://blockstreamresearch.github.io/zk-bridge/?tab=redeem#main',
     'instances/x/')('other.json').catch((e) => e);
   assert.equal(missing.status, 404);
   assert.deepEqual(asked, [
     ['http://localhost:8080/instances/x/manifest.json', { cache: 'no-store' }],
-    ['https://kyrylr.github.io/liquid-poc-bridge/instances/x/other.json', { cache: 'no-store' }],
+    ['https://blockstreamresearch.github.io/zk-bridge/instances/x/other.json', { cache: 'no-store' }],
   ]);
 });
 

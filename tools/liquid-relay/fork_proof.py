@@ -136,7 +136,7 @@ class Endpoint:
             raise SystemExit(f'set {env}')
 
     def request(self, path, accept='application/json', body=None):
-        headers = {'Accept': accept, 'User-Agent': 'liquid-poc-bridge fork_proof'}
+        headers = {'Accept': accept, 'User-Agent': 'zk-bridge fork_proof'}
         if body is not None:
             headers['Content-Type'] = 'application/json'
         req = urllib.request.Request(self.base + path, data=body, headers=headers)

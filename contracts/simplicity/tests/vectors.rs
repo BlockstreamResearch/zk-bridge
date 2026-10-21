@@ -1,11 +1,11 @@
 //! The claim crate's tags, state hash, claimed roots and token blinding factors against the shared protocol vectors
 //! (vectors/protocol.json).
 
-use liquid_bridge_poc::claim::{
+use zk_bridge::claim::{
     claimed_leaf, complete_root, state_hash, state_tag, token_blinding, ClaimedTree, State,
     CLAIMED_TAG, STATE_TAG, TOKEN_BLINDING_TAGS,
 };
-use liquid_bridge_poc::crypto::Root;
+use zk_bridge::crypto::Root;
 
 use serde_json::Value;
 

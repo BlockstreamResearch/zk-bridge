@@ -162,7 +162,7 @@ export function fixture(scenario: Scenario = 'connected', options: FixtureOption
 
   const storage = new Map<string, string>();
   const journeys = options.journeys ?? (scenario === 'activity' ? seededJourneys(now) : []);
-  if (journeys.length) storage.set('liquid-bridge-poc.journeys', JSON.stringify(journeys));
+  if (journeys.length) storage.set('zk-bridge.journeys', JSON.stringify(journeys));
 
   const env: BridgeEnv = {
     ethereum: () => (scenario === 'no-wallet' ? null : wallet),

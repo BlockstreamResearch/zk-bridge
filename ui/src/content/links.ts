@@ -1,7 +1,9 @@
-import { DEFAULTS } from '@bridge/core/config.js';
+import { DEFAULTS, PUBLISHED } from '@bridge/core/config.js';
 
-export const REPO = 'https://github.com/KyrylR/liquid-poc-bridge';
-export const OPERATOR = `${REPO}/blob/main/OPERATOR.md`;
+/** The bridge's repository, and its published site (config.js PUBLISHED): the one copy whose record counts. */
+export const REPO = PUBLISHED.repo;
+export const SITE = PUBLISHED.site;
+export const OPERATOR = `${REPO}/blob/${PUBLISHED.branch}/OPERATOR.md`;
 export const TAKEOVER = `${OPERATOR}#taking-over-a-stalled-deposit`;
 export const JUST_STEPS = `${OPERATOR}#the-same-steps-with-just`;
 export const LIMITS = `${OPERATOR}#limits-to-state-plainly`;
@@ -14,8 +16,10 @@ const RECORD_FILE = /^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9
 
 /** The pages outside this site the page may link to, as canonical URLs without query. */
 const EXTERNAL = [
-  // The repository, or one of its files on main, with an optional heading anchor.
-  new RegExp(`^${literal(REPO)}(?:/blob/main/[A-Za-z0-9_-][A-Za-z0-9._/-]*(?:#[a-z0-9-]+)?)?$`),
+  // The repository, or one of its files on the published branch, with an optional heading anchor.
+  new RegExp(`^${literal(REPO)}(?:/blob/${literal(PUBLISHED.branch)}/[A-Za-z0-9_-][A-Za-z0-9._/-]*(?:#[a-z0-9-]+)?)?$`),
+  // The published site's front page, for a copy of the page served anywhere else.
+  new RegExp(`^${literal(SITE)}$`),
   // A Sepolia address or transaction on the Sepolia explorer.
   new RegExp(`^${literal(DEFAULTS.ethExplorer)}/(?:address/0x[0-9a-fA-F]{40}|tx/0x[0-9a-fA-F]{64})$`),
   // A Liquid testnet transaction or address on Blockstream's explorer: never its API (/liquidtestnet/api).
@@ -27,7 +31,7 @@ const EXTERNAL = [
 /**
  * Whether the page may link to `href` while it serves the instance whose record is `record` (config.js parseInstance
  * `instances/<name>/`, or null for none): an in-page anchor; a file of that record, and of no other; the repository
- * or a file on its main branch; a Sepolia or Liquid testnet explorer page of an address or transaction; or the
+ * or a file on its published branch; the published site's front page; a Sepolia or Liquid testnet explorer page of an address or transaction; or the
  * Sepolia beacon explorer. Nothing else: no other instance's record, no path out of the record, no data API, no other
  * host, scheme, port, credentials or query. An absolute link must be in canonical form, so `..` cannot hide in it.
  */

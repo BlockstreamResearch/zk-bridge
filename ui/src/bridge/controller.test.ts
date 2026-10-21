@@ -24,6 +24,33 @@ async function started(scenario: Scenario = 'connected', tweak?: (f: Fixture) =>
 
 const methods = (f: Fixture) => f.calls.map((x) => x.method);
 
+describe('project name migration', () => {
+  it('keeps saved journeys and RPC settings when upgrading the same origin', () => {
+    const f = fixture('activity');
+    const journeys = f.storage.get('zk-bridge.journeys')!;
+    f.storage.delete('zk-bridge.journeys');
+    f.storage.set('liquid-bridge-poc.journeys', journeys);
+    f.storage.set('liquid-bridge-poc.settings', JSON.stringify({ ethRpc: 'https://rpc.example/' }));
+    const c = new BridgeController(f.instance, f.env);
+    expect(c.getSnapshot().journeys).toHaveLength(4);
+    expect(c.getSnapshot().settings.ethRpc).toBe('https://rpc.example/');
+    expect(f.storage.get('zk-bridge.journeys')).toBe(journeys);
+    expect(f.storage.has('liquid-bridge-poc.journeys')).toBe(false);
+    expect(f.storage.has('liquid-bridge-poc.settings')).toBe(false);
+  });
+
+  it('keeps newer settings and does not restore old values after a reset', async () => {
+    const f = fixture();
+    f.storage.set('zk-bridge.settings', '{}');
+    f.storage.set('liquid-bridge-poc.settings', JSON.stringify({ ethRpc: 'https://old.example/' }));
+    const c = new BridgeController(f.instance, f.env);
+    expect(c.getSnapshot().settings.ethRpc).toBeNull();
+    await c.saveSettings({ esplora: '', ethRpc: '' });
+    expect(new BridgeController(f.instance, f.env).getSnapshot().settings.ethRpc).toBeNull();
+    expect(f.storage.has('liquid-bridge-poc.settings')).toBe(false);
+  });
+});
+
 describe('reading the published instance', () => {
   it('reads the escrow once its code hash is the record\'s, and verifies the real bootstrap issues its asset', async () => {
     const { s } = await started();
@@ -160,7 +187,7 @@ describe('Settings', () => {
     const errors = await c.saveSettings({ esplora: '', ethRpc: KEY_URL });
     expect(errors?.ethRpc).toMatch(/not Sepolia/);
     expect(JSON.stringify(errors)).not.toContain('SECRETKEY');
-    expect(f.storage.has('liquid-bridge-poc.settings')).toBe(false);
+    expect(f.storage.has('zk-bridge.settings')).toBe(false);
   });
 
   it('refuses plain http off this computer', async () => {
@@ -184,8 +211,8 @@ describe('Settings', () => {
 describe('journeys', () => {
   it('shows only activity belonging to the published escrow', async () => {
     const { s } = await started('activity', (f) => {
-      const list = JSON.parse(f.storage.get('liquid-bridge-poc.journeys')!) as object[];
-      f.storage.set('liquid-bridge-poc.journeys', JSON.stringify([
+      const list = JSON.parse(f.storage.get('zk-bridge.journeys')!) as object[];
+      f.storage.set('zk-bridge.journeys', JSON.stringify([
         ...list,
         { ...list[0], escrow: '0x' + 'aa'.repeat(20), id: 'another-escrow' },
       ]));
@@ -214,7 +241,7 @@ describe('journeys', () => {
     f.env.confirm = () => true;
     c.removeJourney(s().journeys[0].id);
     expect(s().journeys).toHaveLength(3);
-    expect(JSON.parse(f.storage.get('liquid-bridge-poc.journeys')!)).toHaveLength(3);
+    expect(JSON.parse(f.storage.get('zk-bridge.journeys')!)).toHaveLength(3);
   });
 });
 

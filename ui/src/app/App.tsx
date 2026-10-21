@@ -4,7 +4,7 @@ import { ActivityPanel, ExpandedProvider } from '../components/Journeys';
 import { DepositPanel } from '../components/DepositPanel';
 import { Footer } from '../components/Footer';
 import { ClaimPanel, UpdatePanel, useClaimPanel } from '../components/LiquidSendPanels';
-import { Masthead, Notice, Slip } from '../components/Masthead';
+import { Masthead, Notice, SiteNotice, Slip } from '../components/Masthead';
 import { Messages } from '../components/Messages';
 import { RedeemPanel } from '../components/RedeemPanel';
 import { Route } from '../components/Route';
@@ -43,6 +43,7 @@ export function App() {
   return (
     <ExpandedProvider>
       <a className="skip" href="#main">Skip to the bridge</a>
+      <SiteNotice />
       <Masthead onTrust={() => {
         if (trustRef.current) trustRef.current.open = true;
       }} />

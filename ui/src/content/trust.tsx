@@ -15,7 +15,7 @@ import { admission, burnAsset, relayLag, signersAhead } from '../bridge/derive';
 import { plural, short } from '../bridge/format';
 import type { BridgeReads, BridgeState } from '../bridge/types';
 import { ExtLink } from '../components/primitives';
-import { LIMITS, TAKEOVER } from './links';
+import { LIMITS, REPO, SITE, TAKEOVER } from './links';
 
 const Code = ({ children }: { children: ReactNode }) => <code className="mono">{children}</code>;
 
@@ -292,7 +292,9 @@ export const ASSUMPTIONS: Assumption[] = [
     here: (s) => <>Sepolia: {s.settings.ethRpc ? 'the RPC you set in Settings' : 'your wallet\'s RPC'}; the page does not read through an RPC whose chain id is
       not Sepolia's. Liquid: {esplora(s)}, whose word the page takes that a transaction is confirmed; the escrow checks every relayed header. The page is static
       files built from the repository, serving {s.instance ? <>only the instance <Code>{s.instance.name}</Code> its <Code>bridge-core/config.js</Code> names</> : 'no instance yet'};
-      it holds no key and runs no relayer or prover.</>,
+      it holds no key and runs no relayer or prover. {s.published
+        ? `This copy is the published site, ${SITE}, built from ${REPO}.`
+        : 'This copy is not the published site named at the top of the page, so no store its record lists counts as published.'}</>,
   },
   {
     title: 'Test networks.',

@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, createHash } from 'node:crypto';
+import { PUBLISHED } from '../config.js';
 import { encodeSegwit } from '../lib/bech32.js';
 import { bigToBytes, bytesToHex, concat, hexToBytes } from '../lib/bytes.js';
 import { displayHex, parseTransaction, readWitness } from '../lib/elements.js';
@@ -310,8 +311,17 @@ test('the site counts a listed store only under the update that reaches its head
   await assert.rejects(siteStore(publishedAs({ ...entries[2], update: undefined }), next, UPDATE_TXID), /under no update, but update/);
 });
 
-test('only an HTTPS site counts a listed store as published', () => {
-  assert.equal(publishes('https://kyrylr.github.io/liquid-poc-bridge/'), true);
+test('only the published site counts a listed store as published', () => {
+  assert.equal(PUBLISHED.site, 'https://blockstreamresearch.github.io/zk-bridge/');
+  assert.equal(publishes(PUBLISHED.site), true);
+  assert.equal(publishes(`${PUBLISHED.site}?tab=redeem#main`), true);
+  // Another copy of the page, however current it looks: an older site, a fork's, another path or scheme on the same host.
+  for (const other of [
+    'https://kyrylr.github.io/liquid-poc-bridge/', 'https://evil.github.io/zk-bridge/',
+    'https://blockstreamresearch.github.io/', 'https://blockstreamresearch.github.io/zk-bridge/instances/',
+    'https://blockstreamresearch.github.io/zk-bridge-old/', 'http://blockstreamresearch.github.io/zk-bridge/',
+    'https://blockstreamresearch.github.io:8443/zk-bridge/',
+  ]) assert.equal(publishes(other), false, other);
   assert.equal(publishes('http://localhost:5173/'), false);
   assert.equal(publishes('file:///tmp/index.html'), false);
   assert.ok(Number.isSafeInteger(servedUntil(next.head)));

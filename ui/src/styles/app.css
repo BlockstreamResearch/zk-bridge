@@ -752,6 +752,16 @@ main:focus {
   border-radius: 50%;
   background: var(--warn-dot);
 }
+/* Above the masthead, on any copy of the page but the published site (Masthead.tsx SiteNotice). */
+.site-notice {
+  margin-top: 16px;
+}
+.site-notice a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
 
 /* Steps of a journey form */
 .panel {

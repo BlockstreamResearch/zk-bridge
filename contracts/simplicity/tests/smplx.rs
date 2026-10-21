@@ -9,7 +9,7 @@
 mod common;
 
 use common::{manifest_params, published_manifests};
-use liquid_bridge_poc::claim::{compile, parameters, test_params, Params, TEMPLATE};
+use zk_bridge::claim::{compile, parameters, test_params, Params, TEMPLATE};
 
 use simplicity::Cmr;
 use smplx_simplicityhl::{

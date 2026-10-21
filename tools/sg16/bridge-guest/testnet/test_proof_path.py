@@ -9,7 +9,9 @@ proved or sent. Transaction files are read by the real sg16-testnet (`just tools
     lc), in Sepolia's config, reading slot 0 of the instance's escrow alone; anything else is refused before the
     host's `run`, so stale inputs never cost a proof
   - `just preflight` passes a signed update only once its successor store and lc_preimages.json entry, staged
-    locally, are read back byte for byte from a public HTTPS URL. Refused: no URL, a non-HTTPS URL, a store or
+    locally, are read back byte for byte: for the escrow the published site serves, from that site's record
+    (bridge-core/config.js PUBLISHED) and nowhere else; for another escrow, from the public HTTPS URL its operator
+    gives. Refused: another URL for the published escrow, no URL or a non-HTTPS URL for another, a store or
     lc_preimages.json that is unpublished or differs, an entry naming another update, a store never staged, and an
     unsigned (Humid) update. preflight never posts anything.
   - a second operator, starting from an empty work directory, takes over after an update that withheld its store:
@@ -39,7 +41,9 @@ INSTANCE = ROOT / 'instances' / 'sepolia-liquid-testnet'
 ESPLORA = 'https://esplora.invalid/api'
 # The justfile reads every txid with the real transaction tool, built by `just tools`.
 TX_BIN = ROOT / 'tools' / 'sg16' / 'bridge-guest' / 'target' / 'testnet-tx' / 'release' / 'sg16-testnet'
-SITE = 'https://pages.invalid/instances/sepolia-liquid-testnet'
+# The published site's copy of the record (bridge-core/config.js PUBLISHED.site), served here by the stand-in curl.
+SITE = 'https://blockstreamresearch.github.io/zk-bridge/instances/sepolia-liquid-testnet'
+NODE = shutil.which('node')
 
 # The successor head of a first update, and the state and fee outputs it spends: stand-ins, not chain values.
 INITIAL_HEAD = (json.loads((INSTANCE / 'initial_state.json').read_text())['head']
@@ -90,8 +94,12 @@ else:
 '''
 
 # bridge-core/test/lc-store.test.js is the ui's own suite; here only its invocation on the instance is recorded.
+# With FAKE_REAL_NODE set, every other node call, such as reading bridge-core/config.js, runs that real node;
+# without it, none runs and each prints nothing.
 FAKE_NODE = r'''#!/usr/bin/env python3
 import json, os, sys
+if '--test' not in sys.argv[1:] and os.environ.get('FAKE_REAL_NODE'):
+    os.execv(os.environ['FAKE_REAL_NODE'], [os.environ['FAKE_REAL_NODE']] + sys.argv[1:])
 with open(os.environ['FAKE_NODE_LOG'], 'a') as log:
     log.write(json.dumps([os.environ.get('RECORD_DIR')] + sys.argv[1:]) + '\n')
 '''
@@ -203,6 +211,7 @@ class ProofInputs(unittest.TestCase):
 @unittest.skipIf(JUST is None, 'just is not installed')
 @unittest.skipIf(not TX_BIN.exists(), f'{TX_BIN} is not built: just tools')
 @unittest.skipIf(not (INSTANCE / 'bootstrap.hex').exists(), f'{INSTANCE} has no bootstrap transaction')
+@unittest.skipIf(NODE is None, 'node is not installed')
 class StorePublication(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='store-publication-'))
@@ -240,12 +249,14 @@ class StorePublication(unittest.TestCase):
             (self.site / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(self.record / name, self.site / name)
 
-    def preflight(self, url=SITE):
+    def preflight(self, url=None, site=SITE):
+        """`just preflight` of the update with STORE_READBACK_URL `url` (unset for None), the stand-in site at `site`."""
         env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'LIQUID_ESPLORA': ESPLORA,
-               'FAKE_SITE_URL': SITE, 'FAKE_SITE_DIR': str(self.site), 'FAKE_CURL_LOG': str(self.tmp / 'curl'),
-               'FAKE_NODE_LOG': str(self.tmp / 'node'), 'BRIDGE_INSTANCE': str(self.record),
+               'FAKE_SITE_URL': site, 'FAKE_SITE_DIR': str(self.site), 'FAKE_CURL_LOG': str(self.tmp / 'curl'),
+               'FAKE_NODE_LOG': str(self.tmp / 'node'), 'FAKE_REAL_NODE': NODE, 'BRIDGE_INSTANCE': str(self.record),
                'BRIDGE_WORK': str(self.work)}
         env.pop('STORE_READBACK_URL', None)
+        env.pop('BRIDGE_ESCROW', None)
         if url is not None:
             env['STORE_READBACK_URL'] = url
         r = subprocess.run([JUST, 'preflight', str(self.update)], cwd=ROOT, env=env, capture_output=True, text=True,
@@ -260,19 +271,40 @@ class StorePublication(unittest.TestCase):
         self.assertIn(fragment, r.stderr)
         self.assertNotIn('ready:', r.stdout)
 
-    def test_a_published_store_passes(self):
-        r = self.preflight()
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn(f'ready: update {self.txid}', r.stdout)
-        # Both files were read back from the site, and the record's own store gate ran on this record.
-        reads = [c[-1] for c in lines(self.tmp / 'curl') if c[-1].startswith(SITE)]
-        self.assertEqual(sorted(reads), sorted(f'{SITE}/{f}' for f in (self.store, 'lc_preimages.json')))
-        self.assertEqual([n[0] for n in lines(self.tmp / 'node')], [str(self.record)])
+    def test_a_store_published_on_the_published_site_passes(self):
+        for url in (None, SITE, SITE + '/'):
+            with self.subTest(url=url):
+                (self.tmp / 'curl').unlink(missing_ok=True)
+                (self.tmp / 'node').unlink(missing_ok=True)
+                r = self.preflight(url)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn(f'reading the store back from {SITE}\n', r.stdout)
+                self.assertIn(f'ready: update {self.txid}', r.stdout)
+                # Both files were read back from the site, and the record's own store gate ran on this record.
+                reads = [c[-1] for c in lines(self.tmp / 'curl') if c[-1].startswith(SITE)]
+                self.assertEqual(sorted(reads), sorted(f'{SITE}/{f}' for f in (self.store, 'lc_preimages.json')))
+                self.assertEqual([n[0] for n in lines(self.tmp / 'node')], [str(self.record)])
 
-    def test_without_a_public_https_url_the_update_waits(self):
-        self.refused('set STORE_READBACK_URL', url=None)
-        self.refused('public HTTPS URL', url=SITE.replace('https://', 'http://'))
-        self.refused('public HTTPS URL', url=str(self.record))
+    def test_the_published_escrow_reads_back_only_from_the_published_site(self):
+        for url in ('https://pages.invalid/instances/sepolia-liquid-testnet',
+                    'https://kyrylr.github.io/liquid-poc-bridge/instances/sepolia-liquid-testnet',
+                    'https://blockstreamresearch.github.io/zk-bridge/instances/other',
+                    SITE.replace('https://', 'http://'), str(self.record)):
+            with self.subTest(url=url):
+                # Even with the files served there.
+                self.refused(f'STORE_READBACK_URL is not {SITE}: the page and the next prover', url=url, site=url)
+
+    def test_another_escrow_reads_back_from_its_own_public_https_url(self):
+        pins_ = json.loads((self.record / 'instance.json').read_text())
+        pins_['ESCROW'] = '0x' + '77' * 20
+        (self.record / 'instance.json').write_text(json.dumps(pins_, indent=1) + '\n')
+        own = 'https://pages.invalid/instances/sepolia-liquid-testnet'
+        r = self.preflight(own, site=own)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f'reading the store back from {own}\n', r.stdout)
+        self.refused('set STORE_READBACK_URL', site=own)
+        self.refused('public HTTPS URL', url=own.replace('https://', 'http://'), site=own)
+        self.refused('public HTTPS URL', url=str(self.record), site=own)
 
     def test_an_unpublished_store_is_refused(self):
         (self.site / self.store).unlink()

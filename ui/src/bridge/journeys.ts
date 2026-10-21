@@ -3,8 +3,23 @@ import { bytesToHex } from '@bridge/core/lib/bytes.js';
 import type { ClaimPlan } from '@bridge/core/lib/claim.js';
 import type { BridgeEnv, DepositJourney, Journey } from './types';
 
-export const SETTINGS_KEY = 'liquid-bridge-poc.settings';
-export const JOURNEYS_KEY = 'liquid-bridge-poc.journeys';
+export const SETTINGS_KEY = 'zk-bridge.settings';
+export const JOURNEYS_KEY = 'zk-bridge.journeys';
+
+/** Keep saved activity and settings when upgrading this origin from the previous project name. */
+export function migrateStorage(storage: BridgeEnv['storage']) {
+  for (const key of [SETTINGS_KEY, JOURNEYS_KEY]) {
+    const previous = key.replace('zk-bridge.', 'liquid-bridge-poc.');
+    try {
+      const value = storage.getItem(previous);
+      if (value === null) continue;
+      if (storage.getItem(key) === null) storage.setItem(key, value);
+      storage.removeItem(previous);
+    } catch {
+      // Storage may be disabled. The controller still starts with its usual defaults.
+    }
+  }
+}
 
 const ETH_TX = /^0x[0-9a-fA-F]{64}$/;
 const ETH_ADDRESS = /^0x[0-9a-fA-F]{40}$/;

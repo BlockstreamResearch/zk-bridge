@@ -1,7 +1,23 @@
 import type { ReactNode } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { type Chip, chips, notice, onSepolia } from '../bridge/derive';
-import { Button } from './primitives';
+import { REPO, SITE } from '../content/links';
+import { Button, ExtLink } from './primitives';
+
+/**
+ * Above everything, on any copy of the page but the published site (BridgeState.published): which site that is, and
+ * that this copy's instance record does not count. A copy elsewhere may be an older build, serving an older record.
+ */
+export function SiteNotice() {
+  if (useBridge().published) return null;
+  return (
+    <p className="notice site-notice shell" role="note">
+      <span><strong>This is not the bridge's published site.</strong> This copy may serve an older instance record, and no light-client store
+        it lists counts as published. Use <ExtLink href={SITE}>{SITE.replace(/^https:\/\/|\/$/g, '')}</ExtLink>, published
+        from <ExtLink href={REPO}>{REPO.replace('https://github.com/', '')}</ExtLink>.</span>
+    </p>
+  );
+}
 
 function Reading({ chain, title, chip }: { chain: 'eth' | 'liquid' | 'bridge'; title: string; chip: Chip }) {
   return (
@@ -26,7 +42,7 @@ export function Masthead({ onTrust }: { onTrust: () => void }) {
       <header className="masthead shell">
         <div className="brand">
           <div className="wordmark-row">
-            <h1 className="wordmark">Bridge<span className="sr-only">: Sepolia and Liquid testnet</span></h1>
+            <h1 className="wordmark">zk-bridge<span className="sr-only">: Sepolia and Liquid testnet</span></h1>
             <span className="badge">Testnet</span>
           </div>
           <p className="tagline" aria-hidden="true">Sepolia <span className="tagline-swap">⇄</span> Liquid</p>

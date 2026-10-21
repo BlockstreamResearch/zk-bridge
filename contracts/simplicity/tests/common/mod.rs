@@ -1,6 +1,6 @@
 //! The published instance records, shared by the tests that rebuild their claim leaf.
 
-use liquid_bridge_poc::claim::Params;
+use zk_bridge::claim::Params;
 
 /// The manifests of the published instance records, instances/<name>/manifest.json; none before the first
 /// deployment.

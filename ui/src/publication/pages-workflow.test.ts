@@ -32,6 +32,17 @@ describe('the Pages workflow', () => {
     expect(steps.findIndex((s) => /^\s+run: /m.test(s))).toBe(at('Check the published instance record'));
   });
 
+  it('publishes only from the published repository and branch, and only to the published site', () => {
+    const gate = step('Check the published instance record');
+    expect(gate).toContain('"https://github.com/" + process.env.GITHUB_REPOSITORY');
+    expect(gate).toContain('here !== PUBLISHED.repo || process.env.GITHUB_REF !== "refs/heads/" + PUBLISHED.branch');
+    const address = step('Check the Pages address');
+    expect(address).toContain('BASE_URL: ${{ steps.pages.outputs.base_url }}');
+    expect(address).toContain('!== PUBLISHED.site');
+    expect(steps[at('Check the Pages address') - 1]).toMatch(/^uses: actions\/configure-pages@[0-9a-f]{40} # v5\n\s+id: pages\n/);
+    expect(at('Check the Pages address')).toBeLessThan(at('Upload static site'));
+  });
+
   it('stages the production build its checks produced', () => {
     expect(workflow).toContain('uses: ./.github/workflows/ci.yml');
     expect(workflow).toContain('needs: ci');

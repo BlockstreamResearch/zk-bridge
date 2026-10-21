@@ -21,7 +21,7 @@ import {
 import * as derive from './derive';
 import { readDeposit, readHumid, readPayTo, readRedeem } from './forms';
 import { message, short } from './format';
-import { SETTINGS_KEY, actionable, label, loadJourneys, saveJourneys, settled } from './journeys';
+import { SETTINGS_KEY, actionable, label, loadJourneys, migrateStorage, saveJourneys, settled } from './journeys';
 import type {
   BootstrapCheck, BridgeEnv, BridgeReads, BridgeState, DepositJourney, FoundRow, Journey, LightClientCheck, LiquidSend, RedeemForm, RedeemJourney,
 } from './types';
@@ -81,9 +81,10 @@ export class BridgeController {
   /** Throws if `published` is not a valid instance record, so a mistaken INSTANCE stops the page. */
   constructor(published: RawInstance | null, private readonly env: BridgeEnv) {
     const instance = parseInstance(published);
+    migrateStorage(env.storage);
     const settings = this.configure();
     this.state = {
-      instance, settings, settingsVersion: 0, hasWallet: !!env.ethereum(), account: null, chainId: null,
+      instance, published: publishes(env.siteHref()), settings, settingsVersion: 0, hasWallet: !!env.ethereum(), account: null, chainId: null,
       bridge: null, bridgeError: null, bootstrap: null, liquid: null, liquidError: null,
       relaying: false, depositBusy: false, redeemBusy: false,
       target: null, targetError: null,

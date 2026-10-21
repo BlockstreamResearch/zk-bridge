@@ -17,6 +17,7 @@
 // update's txid, or one whose store the sender loads here, so that the sender holds what the next prover needs and can
 // publish it anywhere. Either way the store must hash to the lc in the update's own witness. The page uses the store
 // for nothing else: no asset, escrow or amount comes from it.
+import { PUBLISHED } from '../config.js';
 import { encodeSegwit } from './bech32.js';
 import { bigToBytes, bytesToBig, bytesToHex, concat, equal, hexToBytes, utf8 } from './bytes.js';
 import { sha256 } from './hash.js';
@@ -607,11 +608,15 @@ export async function siteStore(readRecord, want, update) {
 }
 
 /**
- * Whether the page at `pageHref` is the published site, whose instance record shows what is published. Only an https
- * page counts, as only HTTPS readback counts for the justfile's STORE_READBACK_URL: a page served from this computer
- * reads the working tree, which publishes nothing.
+ * Whether the page whose base is `pageHref` (its directory, as ui/src/bridge/env.ts siteHref gives it; any query or
+ * fragment is ignored) is the published site, config.js PUBLISHED.site, whose instance record shows what is published.
+ * No other copy counts, as the justfile's preflight reads stores back only from that site: a copy on another host or
+ * path may serve an older record, and a page served from this computer reads the working tree, which publishes nothing.
  */
-export const publishes = (pageHref) => new URL(pageHref).protocol === 'https:';
+export function publishes(pageHref) {
+  const page = new URL(pageHref);
+  return `${page.origin}${page.pathname}` === PUBLISHED.site;
+}
 
 /**
  * Until when, in Unix ms, beacon nodes are asked to keep what rebuilding the store at `head` takes, if no one publishes

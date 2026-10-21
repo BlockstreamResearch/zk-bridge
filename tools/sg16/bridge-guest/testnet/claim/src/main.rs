@@ -1,4 +1,4 @@
-//! sg16-testnet-claim: the claim leaf (compiled by the liquid-bridge-poc crate, `claim::source`) as the sibling of the
+//! sg16-testnet-claim: the claim leaf (compiled by the zk-bridge crate, `claim::source`) as the sibling of the
 //! sg16 update leaf in the testnet state tree P2TR(NUMS, {{update leaf, claim leaf}, state leaf}).
 //!
 //!   sg16-testnet-claim cmr <manifest.json>
@@ -27,11 +27,6 @@
 //! The update leaf is not compiled here: its CMR comes from the manifest, and the claim leaf takes its hash as
 //! SIBLING, authenticated on chain by the control block.  Failed gates print {"ok": false, ...} and exit 3.
 
-use liquid_bridge_poc::claim::{
-    self as leaf, check_params, complete_root, path_value, source, state_hash, u256, u64_value,
-    ClaimedTree, DepositTree, Params, State, NUMS, TREE_DEPTH,
-};
-use liquid_bridge_poc::crypto::sha;
 use serde_json::{json, Value as Json};
 use simplicity::elements::{
     self,
@@ -57,6 +52,11 @@ use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
 };
+use zk_bridge::claim::{
+    self as leaf, check_params, complete_root, path_value, source, state_hash, u256, u64_value,
+    ClaimedTree, DepositTree, Params, State, NUMS, TREE_DEPTH,
+};
+use zk_bridge::crypto::sha;
 
 const SCHEMA: &str = "liquid-bridge-poc/manifest";
 /// Domain tag of the light-client commitment, as sg16-bridge-core's LC_TAG.

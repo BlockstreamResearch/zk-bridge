@@ -6,7 +6,7 @@ A testnet bridge between Ethereum Sepolia and Liquid testnet. Liquid holds the b
 
 **The instance** is one deployed escrow on Sepolia and one confirmed bootstrap on Liquid testnet, linked by their asset ID. Its record is `instances/sepolia-liquid-testnet/`: the escrow's pins, the manifest of its Liquid leaves, its initial state and bootstrap, and its light-client stores.
 
-**The interface** is built from `ui/`, published from `main` by the [GitHub Pages workflow](.github/workflows/pages.yml) at [kyrylr.github.io/liquid-poc-bridge](https://kyrylr.github.io/liquid-poc-bridge/). It serves that one instance for deposits, claims, burns and redemptions; check the latest Pages run and the escrow address shown by the loaded page before using it. A Liquid proof update needs a prover, which in practice the project's operator runs; the [operator instructions](OPERATOR.md) list those duties and how anyone can take them over.
+**The interface** is built from `ui/`, published from `master` of [BlockstreamResearch/zk-bridge](https://github.com/BlockstreamResearch/zk-bridge) by the [GitHub Pages workflow](.github/workflows/pages.yml) at [blockstreamresearch.github.io/zk-bridge](https://blockstreamresearch.github.io/zk-bridge/), the one published site (`bridge-core/config.js` `PUBLISHED`). Its instance record is the published bridge state; a copy of the page served anywhere else says so at the top and counts no light-client store it lists as published. It serves that one instance for deposits, claims, burns and redemptions; check the latest Pages run and the escrow address shown by the loaded page before using it. A Liquid proof update needs a prover, which in practice the project's operator runs; the [operator instructions](OPERATOR.md) list those duties and how anyone can take them over.
 
 This is research code: nothing here has a formal cryptographic audit, and Liquid testnet has a single block signer. Redemptions trust Liquid's block signers and a checkpoint. Deposits trust SP1 and its Groth16 verifier, a weak-subjectivity Sepolia anchor, and the sync committee. Read the trust assumptions in [`contracts/README.md`](contracts/README.md) before relying on anything.
 
@@ -15,7 +15,7 @@ This is research code: nothing here has a formal cryptographic audit, and Liquid
 | Path | Contents |
 |---|---|
 | `contracts/solidity/` | Foundry project: the escrow, its Liquid light client and Elements parser, tests and fixtures. [Design notes and testnet gates](contracts/README.md) |
-| `contracts/simplicity/` | smplx project: the Liquid claim leaf and the Rust crate `liquid-bridge-poc` that compiles and tests it |
+| `contracts/simplicity/` | smplx project: the Liquid claim leaf and the Rust crate `zk-bridge` that compiles and tests it |
 | `tools/sg16/` | The SP1 bridge guest and host (`bridge-guest/`), the Groth16-in-Simplicity update-leaf generator, and the Liquid testnet assembly tools (`bridge-guest/testnet/`) |
 | `tools/sg16-harness/` | Rust harness over stock `simplicity-lang` 0.9 that the assembly tools build on |
 | `tools/liquid-relay/` | Liquid header relay inputs for the light client, and the escrow's beacon fork-check proof |
@@ -84,7 +84,7 @@ A deployed contract or a confirmed covenant cannot change, so once the instance 
 - The claim leaf text in `contracts/simplicity/simf/claim.simf`, whose CMR and source hash the state tree commits ([contracts/simplicity/README.md](contracts/simplicity/README.md)).
 - The SP1 guest under `tools/sg16/bridge-guest/`, whose ELF and vkey every update leaf folds in ([tools/sg16/README.md](tools/sg16/README.md)).
 
-Every domain tag is `liquid-bridge-poc/<purpose>`: `state`, `claimed`, `lc`, `update`, `eth-config`, `deposit`, `burn`, `token-blinding/A` and `/B`, and `manifest` for the manifest schema.
+Every domain tag is `liquid-bridge-poc/<purpose>`: `state`, `claimed`, `lc`, `update`, `eth-config`, `deposit`, `burn`, `token-blinding/A` and `/B`, and `manifest` for the manifest schema. These are fixed protocol bytes of the deployed instance, independent of the `zk-bridge` package name.
 
 ## Keys, broadcasting and deployment
 

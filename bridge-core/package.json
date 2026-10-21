@@ -1,5 +1,5 @@
 {
-  "name": "liquid-bridge-poc-core",
+  "name": "zk-bridge-core",
   "private": true,
   "type": "module",
   "description": "Browser-side Sepolia/Liquid testnet bridge protocol modules and instance record; no dependencies, no build step.",

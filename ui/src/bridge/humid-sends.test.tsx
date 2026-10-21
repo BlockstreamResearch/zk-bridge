@@ -4,6 +4,7 @@
 // is replaced: prepareClaim and prepareUpdate (the plan a file gives), and burnWithHumid and broadcastMatches (the
 // burn Humid makes). The claim and update stand-in is the real public bootstrap transaction, so the Liquid API's copy
 // of it hashes to its txid as a real send's would.
+import { PUBLISHED } from '@bridge/core/config.js';
 import { prepareClaim, type ClaimPlan } from '@bridge/core/lib/claim.js';
 import { type Humid, broadcastMatches, burnWithHumid } from '@bridge/core/lib/humid.js';
 import { prepareUpdate, type UpdatePlan } from '@bridge/core/lib/update.js';
@@ -116,8 +117,8 @@ async function loaded(kind: 'liquidClaim' | 'liquidUpdate', answer: (liquid: { h
   const liquid = liquidApi(f);
   const { humid, asked } = mockHumid(() => answer(liquid));
   f.env.humidWindow = () => ({ humid });
-  // lib/update.js reads the record only on an https page.
-  f.env.siteHref = () => 'https://bridge.example/';
+  // The published site, the one page whose record's stores count (lib/update.js publishes).
+  f.env.siteHref = () => PUBLISHED.site;
   vi.mocked(prepareClaim).mockResolvedValue(claimPlan);
   vi.mocked(prepareUpdate).mockResolvedValue(update);
   const c = new BridgeController(f.instance, f.env);
@@ -411,6 +412,20 @@ describe('the update panel', () => {
     const { send, fact } = await opened({ ...updatePlan, store: null });
     expect(fact()).toHaveTextContent('this page\'s record lists lc_stores/9000000.json, but only the published site\'s record counts');
     expect(send()).toBeDisabled();
+  });
+
+  it.each([
+    [PUBLISHED.site, true],
+    ['https://kyrylr.github.io/liquid-poc-bridge/', false],
+    ['http://localhost:5173/', false],
+  ])('checks an update loaded at %s with published %s', async (site, published) => {
+    const f = fixture('connected');
+    f.env.siteHref = () => site;
+    vi.mocked(prepareUpdate).mockClear().mockResolvedValue(updatePlan);
+    const c = new BridgeController(f.instance, f.env);
+    expect(c.getSnapshot().published).toBe(published);
+    await c.loadFile('liquidUpdate', { size: 4, text: async () => 'abcd' });
+    expect(vi.mocked(prepareUpdate).mock.calls[0][0]).toMatchObject({ published });
   });
 });
 
