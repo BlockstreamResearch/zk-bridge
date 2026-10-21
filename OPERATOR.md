@@ -39,6 +39,19 @@ on a 16 GB machine. A trial with fewer workers, smaller queues and smaller shard
 already exceeded 21 GiB of sampled process-tree RSS before completion on a 64 GB
 Mac. Those settings do not establish a usable 16 GB mode.
 
+To try that experimental profile with your existing inputs:
+
+```sh
+RUST_LOG=info just prove low-memory
+```
+
+It uses one worker per stage, smaller queues and shards, two Rust and Go threads,
+and more frequent Go garbage collection. It may be slower and may still be killed.
+The settings apply only to that invocation. `just prove` keeps the defaults.
+The guest ELF, verification key, proof format and verification checks are unchanged.
+The parameters are read by SP1 6.8.1's [worker configuration](https://github.com/succinctlabs/sp1/blob/v6.8.1/crates/prover/src/worker/config.rs)
+and [executor options](https://github.com/succinctlabs/sp1/blob/v6.8.1/crates/core/executor/src/opts.rs).
+
 Close other heavy applications, including Docker Desktop after building the
 guest. Raising Docker's limit will not help this native proving step. Swap may
 keep a run alive but can make it much slower. `RUST_LOG=info just prove` enables

@@ -693,12 +693,31 @@ execute: check-elf
     check_inputs
     "$BRIDGE_HOST_BIN" run --elf "$BRIDGE_ELF" "$BRIDGE_WORK/inputs.cbor" "$BRIDGE_WORK/execute.json"
 
-# Make and SDK-verify a Groth16 proof with the native CPU prover, then check it against the state.
+# Make and SDK-verify a Groth16 proof. Optional profile: low-memory (experimental; not a RAM cap).
 [group('prove')]
 [confirm("Generate an SP1 Groth16 proof now? It can exceed 16 GB RAM and take minutes to hours. [y/N]")]
-prove: check-elf
+prove profile="default": check-elf
     #!/usr/bin/env bash
     {{ _prelude }}
+    case {{ quote(profile) }} in
+      default) ;;
+      low-memory)
+        # SP1 6.8.1 worker/config.rs and core/executor/opts.rs. Keep the verifier and arities unchanged.
+        for setting in NUM_SPLICING_WORKERS SPLICING_BUFFER_SIZE \
+            NUMBER_OF_SEND_SPLICE_WORKERS_PER_SPLICE SEND_SPLICE_INPUT_BUFFER_SIZE_PER_SPLICE \
+            NUM_CORE_WORKERS CORE_BUFFER_SIZE NUM_SETUP_WORKERS SETUP_BUFFER_SIZE \
+            NORMALIZE_PROGRAM_CACHE_SIZE NUM_PREPARE_REDUCE_WORKERS PREPARE_REDUCE_BUFFER_SIZE \
+            NUM_RECURSION_EXECUTOR_WORKERS RECURSION_EXECUTOR_BUFFER_SIZE \
+            NUM_RECURSION_PROVER_WORKERS RECURSION_PROVER_BUFFER_SIZE NUM_DEFERRED_WORKERS DEFERRED_BUFFER_SIZE; do
+          export "SP1_WORKER_$setting=1"
+        done
+        export TRACE_CHUNK_SLOTS=2 SHARD_SIZE=4194304 ELEMENT_THRESHOLD=134217728
+        export RAYON_NUM_THREADS=2 GOMAXPROCS=2 GOGC=50
+        echo "experimental low-memory profile: smaller shards and queues, fewer workers"
+        echo "a local trial exceeded 21 GiB; this is not a RAM cap or verified 16 GB support"
+        ;;
+      *) die "unknown prover profile; use: just prove [low-memory]" ;;
+    esac
     [ ! -e "$BRIDGE_WORK/proof.json" ] || die "$BRIDGE_WORK/proof.json exists; move it aside first, a proof is costly to remake"
     check_inputs
     if "$BRIDGE_HOST_BIN" run --elf "$BRIDGE_ELF" "$BRIDGE_WORK/inputs.cbor" "$BRIDGE_WORK/proof.json" --prove; then

@@ -231,7 +231,7 @@ class ProofInputs(unittest.TestCase):
                          'slots': [{'key': '0x' + '00' * 32, 'value': '0x' + pins.EMPTY_ACCUMULATOR}]}],
         }
 
-    def run_recipe(self, recipe, summary, killed=False):
+    def run_recipe(self, recipe, summary, killed=False, profile=None):
         (self.tmp / 'anchor.json').write_text(json.dumps(summary))
         env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'FAKE_ANCHOR': str(self.tmp / 'anchor.json'),
                'FAKE_HOST_RUNS': str(self.tmp / 'runs'), 'BRIDGE_INSTANCE': str(INSTANCE),
@@ -239,7 +239,8 @@ class ProofInputs(unittest.TestCase):
         env.pop('BRIDGE_ESCROW', None)
         if killed:
             env['FAKE_HOST_KILLED'] = '1'
-        r = subprocess.run([JUST, '--yes', f'BRIDGE_HOST_BIN={self.bin / "sg16-bridge-host"}', recipe],
+        args = [recipe] + ([profile] if profile is not None else [])
+        r = subprocess.run([JUST, '--yes', f'BRIDGE_HOST_BIN={self.bin / "sg16-bridge-host"}', *args],
                            cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         return r, lines(self.tmp / 'runs')
 
@@ -264,6 +265,20 @@ class ProofInputs(unittest.TestCase):
         self.assertIn('proof.store.json alone is not a proof', r.stderr)
         self.assertNotIn('proof accepted', r.stdout)
 
+    def test_low_memory_proving_still_checks_the_artifact(self):
+        r, runs = self.run_recipe('prove', self.summary(), profile='low-memory')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('proof.json is missing', r.stderr)
+        self.assertIn('not a RAM cap or verified 16 GB support', r.stdout)
+        self.assertEqual(len(runs), 1)
+        self.assertIn('--prove', runs[0])
+
+    def test_unknown_prover_profile_does_not_start_a_proof(self):
+        r, runs = self.run_recipe('prove', self.summary(), profile='unknown')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('unknown prover profile', r.stderr)
+        self.assertEqual(runs, [])
+
     def test_inputs_that_do_not_fit_are_refused_before_the_guest_runs(self):
         def edit(f):
             s = self.summary()
@@ -280,10 +295,10 @@ class ProofInputs(unittest.TestCase):
             ('two slots', lambda s: s['storage'][0]['slots'].append(dict(s['storage'][0]['slots'][0])), 'alone'),
             ('two contracts', lambda s: s['storage'].append(dict(s['storage'][0])), 'alone'),
         )
-        for recipe in ('execute', 'prove'):
+        for recipe, profile in (('execute', None), ('prove', None), ('prove', 'low-memory')):
             for name, f, fragment in cases:
                 with self.subTest(recipe=recipe, case=name):
-                    r, runs = self.run_recipe(recipe, edit(f))
+                    r, runs = self.run_recipe(recipe, edit(f), profile=profile)
                     self.assertNotEqual(r.returncode, 0, r.stdout)
                     self.assertIn(fragment, r.stderr)
                     self.assertIn('run just inputs again', r.stderr)
