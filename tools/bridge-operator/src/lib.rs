@@ -7,5 +7,7 @@
 pub mod abi;
 pub mod bridge;
 pub mod elements;
+pub mod esplora;
 pub mod hash;
 pub mod hex;
+pub mod light_client;
