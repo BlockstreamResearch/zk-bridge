@@ -74,7 +74,7 @@ Some inputs exist only where they were produced, and tests that need them print 
 
 The guest, its proving and the remaining `tools/sg16` suites are documented in their own READMEs: [`tools/sg16/README.md`](tools/sg16/README.md), [`tools/sg16/bridge-guest/testnet/README.md`](tools/sg16/bridge-guest/testnet/README.md), [`tools/liquid-relay/README.md`](tools/liquid-relay/README.md), [`bridge-core/README.md`](bridge-core/README.md) and [`ui/README.md`](ui/README.md).
 
-The [CI workflow](.github/workflows/ci.yml) runs routine deterministic checks on pull requests and pushes to `main`; it downloads pinned public dependencies but does not read live chain state. The manual [Pages workflow](.github/workflows/pages.yml) requires CI before staging and publishing the site. CI checks the responsive React fixture with Chrome at desktop and narrow-phone widths. It does not broadcast transactions, generate an SP1 proof, or run the long folded-verifier tests. Those require the operator's separate proof and deployment checks.
+The [CI workflow](.github/workflows/ci.yml) runs routine deterministic checks on pull requests and pushes to `main` or `master`; it downloads pinned public dependencies but does not read live chain state. The manual [Pages workflow](.github/workflows/pages.yml) requires CI before staging and publishing the site. CI checks the responsive React fixture with Chrome at desktop and narrow-phone widths. It does not broadcast transactions, generate an SP1 proof, or run the long folded-verifier tests. Those require the operator's separate proof and deployment checks.
 
 ## Sources a deployment pins
 
