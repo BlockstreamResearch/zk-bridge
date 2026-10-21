@@ -266,16 +266,28 @@ test('a store must hash to the requested light-client state', () => {
   assert.throws(() => storeFile(UPDATE.hex, next, 'f'), /not a store file/);
 });
 
+/** The record with the published successor, its entry for `next` replaced by `entry`. */
+const publishedAs = (entry) => site({
+  ...published, 'lc_preimages.json': JSON.stringify({ preimages: [entries[0], entries[1], entry] }),
+});
+
 test('the site counts only listed, correctly named stores as published', async () => {
-  assert.equal(await siteStore(site(), state), entries[1].store);
-  assert.equal(await siteStore(site(), next), null);
-  assert.equal(await siteStore(site(published), next), nextStore);
-  assert.equal(await siteStore(site({ 'lc_preimages.json': null }), next), null);
-  await assert.rejects(siteStore(site({ ...published, [nextStore]: null }), next), /HTTP 404/);
-  const bad = { ...entries[2], store: '../../elsewhere.json' };
-  await assert.rejects(siteStore(site({
-    ...published, 'lc_preimages.json': JSON.stringify({ preimages: [entries[0], entries[1], bad] }),
-  }), next), /is malformed/);
+  assert.equal(await siteStore(site(), state, STATE_TXID), entries[1].store);
+  assert.equal(await siteStore(site(), next, UPDATE_TXID), null);
+  assert.equal(await siteStore(site(published), next, UPDATE_TXID), nextStore);
+  assert.equal(await siteStore(site({ 'lc_preimages.json': null }), next, UPDATE_TXID), null);
+  await assert.rejects(siteStore(site({ ...published, [nextStore]: null }), next, UPDATE_TXID), /HTTP 404/);
+  await assert.rejects(siteStore(publishedAs({ ...entries[2], store: '../../elsewhere.json' }), next, UPDATE_TXID), /is malformed/);
+});
+
+test('the site counts a listed store only under the update that reaches its head', async () => {
+  // The anchor's starting store names no update, as the initial state was reached by none.
+  assert.equal(await siteStore(site(), anchor, null), entries[0].store);
+  await assert.rejects(siteStore(site(), anchor, STATE_TXID), /under no update, but update .* reaches that slot/);
+  await assert.rejects(siteStore(site(), state, null), /under update .*, but no update reaches that slot/);
+  // A store listed for another update, or for none, past the anchor.
+  await assert.rejects(siteStore(site(published), next, STATE_TXID), new RegExp(`under update ${UPDATE_TXID}, but update ${STATE_TXID}`));
+  await assert.rejects(siteStore(publishedAs({ ...entries[2], update: undefined }), next, UPDATE_TXID), /under no update, but update/);
 });
 
 test('only an HTTPS site counts a listed store as published', () => {
@@ -472,6 +484,24 @@ test('the panel identifies the live store and loads an unpublished successor sto
   await assert.rejects(sendUpdate({ humid: fakeHumid(), esplora: before(), plan }), /load the store/);
   assert.deepEqual((await prepare(before(), site(published))).store, { where: 'site', path: nextStore });
   assert.equal((await prepare(before(), site(published), false)).store, null);
+});
+
+test('the panel refuses a store the record lists under another update than the live or loaded one', async () => {
+  // Before the first update the live state is the anchor, whose starting store names none.
+  const atAnchor = await lightClientStatus({ esplora: liquidApi(), readRecord: site(), bootstrap: BOOT_TXID });
+  assert.equal(atAnchor.live.update, null);
+  assert.equal(atAnchor.listed, entries[0].store);
+  const record = (preimages) => site({ 'lc_preimages.json': JSON.stringify({ preimages }) });
+  const named = { ...entries[0], update: STATE_TXID };
+  await assert.rejects(lightClientStatus({ esplora: liquidApi(), readRecord: record([named, entries[1]]), bootstrap: BOOT_TXID }),
+    /under update .*, but no update reaches that slot/);
+  // The live head reached by STATE, listed under another update.
+  const other = { ...entries[1], update: FEE_TXID };
+  await assert.rejects(lightClientStatus({ esplora: before(), readRecord: record([entries[0], other]), bootstrap: BOOT_TXID }),
+    new RegExp(`under update ${FEE_TXID}, but update ${STATE_TXID}`));
+  // The loaded update's successor store, published under another update: nothing to send from the site's copy.
+  await assert.rejects(prepare(before(), publishedAs({ ...entries[2], update: FEE_TXID })),
+    new RegExp(`under update ${FEE_TXID}, but update ${UPDATE_TXID}`));
 });
 
 test('the panel refuses a spent state, used fee coin, sent update, or unavailable Liquid API', async () => {

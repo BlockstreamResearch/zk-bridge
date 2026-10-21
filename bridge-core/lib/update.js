@@ -13,10 +13,10 @@
 // The store. Liquid holds only lc, the hash of the light-client store an update moves to. The next prover needs the
 // store itself: from this site's record, from whoever proved the update, or rebuilt from public beacon data while
 // beacon nodes still serve it (sg16-bridge-host reconstruct). The covenant cannot make anyone publish it, and this page
-// does not make this site's maintainers a gate either. It sends an update whose store this site publishes, or one
-// whose store the sender loads here, so that the sender holds what the next prover needs and can publish it anywhere.
-// Either way the store must hash to the lc in the update's own witness. The page uses the store for nothing else: no
-// asset, escrow or amount comes from it.
+// does not make this site's maintainers a gate either. It sends an update whose store this site publishes under that
+// update's txid, or one whose store the sender loads here, so that the sender holds what the next prover needs and can
+// publish it anywhere. Either way the store must hash to the lc in the update's own witness. The page uses the store
+// for nothing else: no asset, escrow or amount comes from it.
 import { encodeSegwit } from './bech32.js';
 import { bigToBytes, bytesToBig, bytesToHex, concat, equal, hexToBytes, utf8 } from './bytes.js';
 import { sha256 } from './hash.js';
@@ -571,11 +571,13 @@ export function storeFile(text, want, name) {
 }
 
 /**
- * The store this site's record lists for the light-client state `want` ({ head, lc }), read through `readRecord`: the
- * path of the file named by the lc_preimages.json entry at that head whose header and committee hash to lc, which must
- * hold that store (storeFile). null if no entry fits or the one that fits names no file.
+ * The store this site's record lists for the light-client state `want` ({ head, lc }), reached by the update with txid
+ * `update` (null for the initial state), read through `readRecord`: the path of the file named by the lc_preimages.json
+ * entry at that head whose header and committee hash to lc, which must hold that store (storeFile). null if no entry
+ * fits or the one that fits names no file. Throws if that entry names another update, as the justfile's preflight
+ * does: the record would then say another transaction reached that head. The anchor's starting store names none.
  */
-export async function siteStore(readRecord, want) {
+export async function siteStore(readRecord, want, update) {
   let entries;
   try {
     entries = JSON.parse(await readRecord('lc_preimages.json')).preimages;
@@ -593,6 +595,10 @@ export async function siteStore(readRecord, want) {
   const entry = (Array.isArray(entries) ? entries : []).find(fits);
   if (entry?.store === undefined) return null;
   if (entry.store !== `lc_stores/${want.head}.json`) throw new Error(`lc_preimages.json's entry for slot ${want.head} is malformed`);
+  if ((entry.update ?? null) !== update) {
+    const named = (txid) => (txid ? `update ${txid}` : 'no update');
+    throw new Error(`lc_preimages.json lists the store at slot ${want.head} under ${named(entry.update)}, but ${named(update)} reaches that slot`);
+  }
   storeFile(await readRecord(entry.store), want, `this site's ${entry.store}`);
   return entry.store;
 }
@@ -613,12 +619,13 @@ export const servedUntil = (head) => (SEPOLIA_GENESIS + (Math.floor(head / PERIO
 
 /**
  * The light-client state on Liquid as the update panel shows it, before any update is loaded: { live, listed }, the
- * live state (liveState) and the path of its store in this page's record, or null if the record lists none.
+ * live state (liveState) and the path of its store in this page's record, or null if the record lists none. The
+ * record must list it under the update that moved the light client there (siteStore).
  */
 export async function lightClientStatus({ esplora, readRecord, bootstrap, from = null, progress }) {
   const manifest = JSON.parse(await readRecord('manifest.json'));
   const live = await liveState({ esplora, manifest, bootstrap, from, progress });
-  return { live, listed: await siteStore(readRecord, live.state) };
+  return { live, listed: await siteStore(readRecord, live.state, live.update) };
 }
 
 /**
@@ -658,7 +665,8 @@ async function unsent(esplora, u) {
  * (publishes); only then does a store its record lists count as published.
  *
  * Returns the PSET plan of updatePset with { update, live, successor, listed, store }: `successor` is the state the
- * update moves to; `listed`, the path of its store in this page's record, or null; `store`, { where: 'site', path }
+ * update moves to; `listed`, the path of its store in this page's record, listed under this update, or null (siteStore
+ * refuses an entry naming another); `store`, { where: 'site', path }
  * when that store is published here, else null until withStore adds the sender's own file. sendUpdate needs one.
  */
 export async function prepareUpdate({ esplora, readRecord, raw, bootstrap, published, from = null, progress }) {
@@ -672,7 +680,7 @@ export async function prepareUpdate({ esplora, readRecord, raw, bootstrap, publi
     throw new Error(`this update spends ${update.state.txid}:${update.state.vout}, not the live state output ${live.outpoint.txid}:0. Build it again from just status`);
   }
   const successor = spendOf(raw, live.outpoint, live.state, tree).state;
-  const listed = await siteStore(readRecord, successor);
+  const listed = await siteStore(readRecord, successor, update.txid);
   const plan = updatePset(update, await esplora.txHex(update.state.txid), await esplora.txHex(update.fee.txid));
   return { ...plan, update, live, successor, listed, store: published && listed ? { where: 'site', path: listed } : null };
 }
