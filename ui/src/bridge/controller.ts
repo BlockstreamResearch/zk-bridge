@@ -881,7 +881,7 @@ export class BridgeController {
       this.live = live;
       this.setLightClient({ status: { live, listed, published: publishes(site), checkedAt: this.env.now() } });
     } catch (e) {
-      this.setLightClient({ error: `The bridge state on Liquid could not be followed: ${message(e)}.` });
+      this.setLightClient({ error: `The bridge state or published store could not be checked: ${message(e)}.` });
     } finally {
       this.setLightClient({ busy: false, note: '' });
     }

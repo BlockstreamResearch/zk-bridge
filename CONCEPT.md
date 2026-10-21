@@ -54,7 +54,7 @@ node vectors/record.mjs --check
 cargo test --release --locked --manifest-path contracts/simplicity/Cargo.toml
 
 # 5. The shared browser rules, the React page, and the relay tools.
-npm --prefix ui test
+npm --prefix bridge-core test
 npm ci --prefix ui && npm --prefix ui run check
 python3 tools/liquid-relay/test_liquid.py
 python3 tools/liquid-relay/test_beacon.py
