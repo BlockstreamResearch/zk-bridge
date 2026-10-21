@@ -1,0 +1,225 @@
+# The deterministic checks too slow for ci.yml: each compiles a folded Groth16 verifier into an update leaf, rebuilds
+# the SP1 guest in its pinned Docker image, or builds the smplx CLI from source. Like ci.yml, it deploys nothing,
+# signs nothing, reads no chain and uses no secret; jobs fetch only pinned public dependencies (crates, vendor/
+# checkouts, the SP1 image, smplx at a commit).
+#
+# It runs by hand (Actions, "Run workflow") and on changes outside the React page and the documentation, which
+# these checks do not read. Run it before changing the update-leaf generator, the guest, the claim leaf, the smplx
+# pin or a vendored pin.
+#
+# Still not run anywhere in CI, because they need what CI does not have:
+#   - SP1 proofs: test_testnet.py --exec-artifact/--proof-artifact and test_bridge_guest.py --artifact take real
+#     proof artifacts, which are not tracked. test_testnet.py section F runs without them and names what it skips.
+#   - Live reads: testRealSepoliaStateProof (an archive RPC), test_liquid.py Fixture, and every justfile recipe that
+#     reads Esplora or Sepolia.
+
+name: Slow deterministic checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ['ui/**', '**.md']
+  pull_request:
+    paths-ignore: ['ui/**', '**.md']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slow-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: '1.95.0'
+  # Print each check as it runs, not when the suite exits.
+  PYTHONUNBUFFERED: '1'
+
+defaults:
+  run:
+    # Explicitly bash, so that a pipe into tee fails when the suite does (-o pipefail).
+    shell: bash
+
+jobs:
+  # test_bridge_guest.py section C: the update leaf with the Groth16 verifier for a folded synthetic key.
+  bridge-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/sg16-harness/target
+            tools/sg16/bridge-guest/target
+          key: slow-bridge-guest-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('tools/sg16-harness/Cargo.lock', 'tools/sg16/bridge-guest/Cargo.lock', 'tools/bootstrap-deps.py') }}
+      - name: Fetch pinned dependencies
+        run: python3 tools/bootstrap-deps.py
+      - name: Harness and guest core
+        run: |
+          cargo build --release --locked --manifest-path tools/sg16-harness/Cargo.toml
+          cargo build --release --locked -p sg16-bridge-core --features cli --manifest-path tools/sg16/bridge-guest/Cargo.toml
+      - name: test_bridge_guest.py --full
+        run: python3 tools/sg16/bridge-guest/test_bridge_guest.py --full | tee "$RUNNER_TEMP/suite.log"
+      # The suite prints a skip, not a failure, when a tool is missing. Here every tool is built, so any skip is lost
+      # coverage.
+      - name: Every section ran
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          grep -q '^C\. ' "$RUNNER_TEMP/suite.log" || fail 'test_bridge_guest.py did not run section C'
+          if grep -E '^  \(' "$RUNNER_TEMP/suite.log"; then
+            fail 'test_bridge_guest.py skipped the checks above'
+          fi
+
+  # test_testnet.py section E, a synthetic-key update leaf through the real-transaction builder, and section F, the
+  # real-key update leaf of the published instance and its local bootstrap. F's real-proof checks need an untracked
+  # proof artifact and are skipped.
+  testnet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      INSTANCE: instances/sepolia-liquid-testnet/instance.json
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/sg16-harness/target
+            tools/sg16/bridge-guest/target/testnet-tx
+            tools/sg16/bridge-guest/target/testnet-claim
+          key: slow-testnet-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('tools/sg16-harness/Cargo.lock', 'tools/sg16/bridge-guest/testnet/*/Cargo.lock', 'tools/bootstrap-deps.py') }}
+      - name: Fetch pinned dependencies
+        run: python3 tools/bootstrap-deps.py
+      - name: Harness, transaction tool and claim tool
+        run: |
+          cargo build --release --locked --manifest-path tools/sg16-harness/Cargo.toml
+          CARGO_TARGET_DIR=tools/sg16/bridge-guest/target/testnet-tx \
+            cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/tx/Cargo.toml
+          CARGO_TARGET_DIR=tools/sg16/bridge-guest/target/testnet-claim \
+            cargo build --release --locked --manifest-path tools/sg16/bridge-guest/testnet/claim/Cargo.toml
+      - name: test_testnet.py --full --real
+        run: |
+          python3 tools/sg16/bridge-guest/testnet/test_testnet.py --full --real --artifact-instance "$INSTANCE" \
+            | tee "$RUNNER_TEMP/suite.log"
+      # As above; the only skips allowed are those for the untracked SP1 artifacts.
+      - name: Every section ran
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          for section in A B C D E F G; do
+            grep -q "^$section\. " "$RUNNER_TEMP/suite.log" || fail "test_testnet.py did not run section $section"
+          done
+          if grep -E '^  \(' "$RUNNER_TEMP/suite.log" \
+              | grep -v -E '^  \((no --exec-artifact|no real artifact|no --proof-artifact):'; then
+            fail 'test_testnet.py skipped the checks above'
+          fi
+
+  # The guest ELF rebuilt from this checkout in the pinned SP1 image must be the one the instance pins (GUEST_ELF_SHA256
+  # and PROGRAM_VKEY), as `just prover` and `just check-elf` check by hand. It builds; it neither executes nor proves.
+  guest-elf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      CARGO_BUILD_JOBS: '2'
+      # The justfile's default, where `just prover` writes the ELF.
+      BRIDGE_ELF: target/takeover/elf/sg16-bridge-program
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-prove
+            tools/sg16/bridge-guest/target/release
+          key: slow-guest-elf-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('tools/sg16/bridge-guest/Cargo.lock', 'tools/bootstrap-deps.py') }}
+      - name: Fetch pinned dependencies
+        run: python3 tools/bootstrap-deps.py
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
+        with:
+          tool: just@1.45.0
+      # cargo-prove from the v6.8.1 release tag's source, so that no installer script runs. `just prover` requires
+      # this version.
+      - name: SP1 cargo-prove 6.8.1
+        run: |
+          if ! cargo prove --version 2>/dev/null | grep -q -E '6\.8\.1|c84ada1'; then
+            cargo install --locked --git https://github.com/succinctlabs/sp1 --tag v6.8.1 sp1-cli
+          fi
+          cargo prove --version
+      # `just prover` is these two steps. The host comes first, before the container writes root-owned files under
+      # the workspace, and is built without rebuilding the pinned Helios ELFs, as in ci.yml.
+      - name: Prover host
+        env:
+          SP1_SKIP_PROGRAM_BUILD: 'true'
+        run: just host
+      - name: Guest ELF in the pinned SP1 Docker image
+        run: |
+          mkdir -p "$(dirname "$BRIDGE_ELF")"
+          out=$(cd "$(dirname "$BRIDGE_ELF")" && pwd)
+          cd tools/sg16/bridge-guest/program
+          cargo prove build --docker --tag v6.8.1 --locked --workspace-directory ../../../.. --output-directory "$out"
+      - name: The ELF and vkey are the instance's
+        run: just check-elf
+
+  # `simplex build` of the claim leaf on a fresh checkout, and the ignored test that compiles its output to the
+  # leaf's CMR for the test parameters and each published manifest (contracts/simplicity/README.md, "The CLI").
+  # ci.yml already checks smplx's SimplicityHL release on the leaf as written; this checks the CLI's rewrite of it.
+  smplx:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # smplx tag v0.0.12, by commit, so that a moved tag cannot change the build.
+      SMPLX_REV: 5472e9149d60f4b618e827c061c395aa7215c137
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      # Sources only. Neither the binary nor target/ is cached, so each run builds smplx and the leaf afresh.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: slow-smplx-${{ env.RUST_TOOLCHAIN }}-${{ env.SMPLX_REV }}-${{ hashFiles('contracts/simplicity/Cargo.lock', 'tools/bootstrap-deps.py') }}
+      - name: Fetch pinned dependencies
+        run: python3 tools/bootstrap-deps.py
+      # From source with smplx's own lockfile, so that no installer script runs. Outside ~/.cargo/bin, so that no
+      # other simplex on the runner is used.
+      - name: smplx 0.0.12
+        run: |
+          cargo install --locked --git https://github.com/BlockstreamResearch/smplx --rev "$SMPLX_REV" \
+            --root "$RUNNER_TEMP/smplx" smplx-cli
+          echo "$RUNNER_TEMP/smplx/bin" >> "$GITHUB_PATH"
+      - name: The CLI is 0.0.12
+        run: |
+          test "$(command -v simplex)" = "$RUNNER_TEMP/smplx/bin/simplex"
+          test "$(simplex --version)" = 'Simplex 0.0.12'
+      # A build that fails to parse the leaf exits 0 and keeps any earlier output, so start from none. The test
+      # also refuses output older than simf/claim.simf.
+      - name: simplex build
+        working-directory: contracts/simplicity
+        run: |
+          if [ -e target/simplex ]; then
+            echo '::error::target/simplex exists before simplex build'
+            exit 1
+          fi
+          simplex build
+      - name: simplex_build_output_compiles_to_the_leaf
+        run: |
+          cargo test --release --locked --manifest-path contracts/simplicity/Cargo.toml --test smplx \
+            -- --ignored --exact simplex_build_output_compiles_to_the_leaf | tee "$RUNNER_TEMP/test.log"
+      # A filter that matches no test passes, so require that this one ran.
+      - name: The test ran
+        run: grep -q -x 'test simplex_build_output_compiles_to_the_leaf ... ok' "$RUNNER_TEMP/test.log"
