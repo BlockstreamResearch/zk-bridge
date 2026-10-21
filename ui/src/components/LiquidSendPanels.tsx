@@ -128,7 +128,7 @@ const sendTx = (txid: string) => <ExtLink href={`${DEFAULTS.liquidExplorer}/tx/$
 function storeFact(plan: UpdatePlan): string {
   const { store, listed } = plan;
   if (store?.where === 'site') return `published on this site, ${store.path}`;
-  if (store?.where === 'file') return `from your file ${store.name}, which hashes to the lc in the update's witness`;
+  if (store?.where === 'file') return `from your file ${store.name}; its head and roots match the update's lc. The next prover checks its contents`;
   return listed ? `none yet: this page's record lists ${listed}, but only the published site's record counts. Load the file below`
     : 'none yet: this site does not publish it. Load the file below';
 }
@@ -137,7 +137,7 @@ const STORE_MISSING = 'Load the store this update moves to first: this site does
 
 /**
  * The sender's own store, for an update whose store this site does not publish (controller.loadStore). The page
- * accepts it only if it hashes to the lc in the update's witness, and reads nothing else from it.
+ * checks its head and roots against the lc in the update's witness. The next prover checks its contents.
  */
 function StoreField({ plan }: { plan: UpdatePlan }) {
   const s = useBridge();

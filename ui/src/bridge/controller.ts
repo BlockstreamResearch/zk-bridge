@@ -925,20 +925,25 @@ export class BridgeController {
 
   /**
    * Adds the sender's own store file to the loaded update when this site does not publish the store it moves to
-   * (lib/update.js withStore). The file must hash to the lc in the update's witness; nothing else is read from it.
+   * (lib/update.js withStore). Its head and roots must match the update's lc; the next prover checks its CBOR.
    */
   async loadStore(file: HexFile | null) {
-    const { plan, sent, busy } = this.state.liquidUpdate;
+    const { plan: loaded, sent, busy } = this.state.liquidUpdate;
     this.patchSend('liquidUpdate', { storeError: '' });
-    if (!file || !plan || plan.store?.where === 'site' || sent || busy) return;
+    if (!loaded || loaded.store?.where === 'site' || sent || busy) return;
+    // Each choice, or clearing the field, drops the store an earlier file gave, before this file is read. The plan is a
+    // new object every time, so a file still being read for an earlier choice no longer matches it.
+    const plan: UpdatePlan = { ...loaded, store: null };
+    this.patchSend('liquidUpdate', { plan });
+    if (!file) return;
+    // An update or another store file loaded meanwhile replaced the plan: this file is no longer the one chosen.
+    const current = () => this.state.liquidUpdate.plan === plan;
     try {
       if (file.size > MAX_FILE) throw new Error('this file is too large to be a store file');
       const text = await file.text();
-      // An update loaded meanwhile replaced the plan: this file was chosen for another.
-      if (this.state.liquidUpdate.plan !== plan) return;
-      this.patchSend('liquidUpdate', { plan: withStore(plan, text, file.name || 'this file') });
+      if (current()) this.patchSend('liquidUpdate', { plan: withStore(plan, text, file.name || 'this file') });
     } catch (e) {
-      this.patchSend('liquidUpdate', { storeError: `Not this update's store: ${message(e)}.` });
+      if (current()) this.patchSend('liquidUpdate', { storeError: `Not this update's store: ${message(e)}.` });
     }
   }
 

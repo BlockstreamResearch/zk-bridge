@@ -313,13 +313,91 @@ describe('the update panel', () => {
     expect(send()).toBeDisabled();
 
     await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
-    await waitFor(() => expect(fact()).toHaveTextContent('from your file proof.store.json, which hashes to the lc in the update\'s witness'));
+    await waitFor(() => expect(fact()).toHaveTextContent(
+      'from your file proof.store.json; its head and roots match the update\'s lc. The next prover checks its contents',
+    ));
     expect(tray.queryByText(/Not this update's store/)).toBeNull();
     expect(updateState().plan?.store).toMatchObject({ where: 'file', entry: { head: STORE.head, update: TXID, store: 'lc_stores/9000000.json' } });
     expect(send()).toBeEnabled();
     await user.click(send());
     expect(await tray.findByText(/is confirmed on Liquid in block 2,664,001/)).toBeInTheDocument();
     expect(asked.sign).toBe(1);
+  });
+
+  /** The update panel after the sender has loaded proof.store.json. */
+  async function withOwnStore() {
+    const ctx = await opened({ ...updatePlan, listed: null, store: null });
+    const store = ctx.tray.getByLabelText(/The store this update moves to/);
+    await ctx.user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
+    await waitFor(() => expect(ctx.send()).toBeEnabled());
+    return { ...ctx, store };
+  }
+
+  it.each([
+    ['is not a store file', 'not json', 'Not this update\'s store: other.json is not a store file.'],
+    [
+      'is another state\'s store',
+      JSON.stringify(storeAt(9_000_064, 'b2')),
+      /other\.json is the store at slot 9,000,064 .*, not the one at slot 9,000,000/,
+    ],
+  ])('drops the loaded store when the next file chosen %s', async (_case, text, error) => {
+    const { user, tray, send, fact, store, asked, updateState } = await withOwnStore();
+    await user.upload(store, json('other.json', text));
+    expect(await tray.findByText(error)).toBeInTheDocument();
+    expect(updateState().plan?.store).toBeNull();
+    expect(fact()).toHaveTextContent('none yet: this site does not publish it. Load the file below');
+    expect(send()).toBeDisabled();
+    expect(tray.getByText(/^Load the store this update moves to first/)).toBeInTheDocument();
+
+    await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
+    await waitFor(() => expect(send()).toBeEnabled());
+    expect(tray.queryByText(/Not this update's store/)).toBeNull();
+    await user.click(send());
+    expect(await tray.findByText(/is confirmed on Liquid in block 2,664,001/)).toBeInTheDocument();
+    expect(asked.sign).toBe(1);
+  });
+
+  it('drops the loaded store when the file field is cleared', async () => {
+    const { c, user, tray, send, fact, store, asked, updateState } = await withOwnStore();
+    await user.upload(store, []);
+    await waitFor(() => expect(send()).toBeDisabled());
+    expect(updateState().plan?.store).toBeNull();
+    expect(fact()).toHaveTextContent('none yet: this site does not publish it. Load the file below');
+    expect(tray.queryByText(/Not this update's store/)).toBeNull();
+    // The controller refuses too, not only the disabled button: Humid is not asked to sign.
+    await c.sendFile('liquidUpdate');
+    expect(updateState().error).toMatch(/load the store this update moves to first/);
+    expect(asked.sign).toBe(0);
+
+    await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
+    await waitFor(() => expect(send()).toBeEnabled());
+    expect(fact()).toHaveTextContent('from your file proof.store.json');
+  });
+
+  it('does not take a store file still being read once another file is chosen or the field is cleared', async () => {
+    const { c, s } = await loaded('liquidUpdate', broadcasts('confirmed'), { ...updatePlan, listed: null, store: null });
+    // A valid store file whose text arrives only when `arrive` is called.
+    const slow = () => {
+      let arrive = () => {};
+      const text = new Promise<string>((resolve) => { arrive = () => resolve(JSON.stringify(STORE)); });
+      return { file: { name: 'proof.store.json', size: 4, text: () => text }, arrive };
+    };
+
+    const first = slow();
+    const reading = c.loadStore(first.file);
+    await c.loadStore({ name: 'other.json', size: 8, text: async () => 'not json' });
+    first.arrive();
+    await reading;
+    expect(s().plan).toMatchObject({ store: null });
+    expect(s().storeError).toBe('Not this update\'s store: other.json is not a store file.');
+
+    const second = slow();
+    const again = c.loadStore(second.file);
+    await c.loadStore(null);
+    second.arrive();
+    await again;
+    expect(s().plan).toMatchObject({ store: null });
+    expect(s().storeError).toBe('');
   });
 
   it('asks for no file when this site publishes the store', async () => {
