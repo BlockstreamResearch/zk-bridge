@@ -7,7 +7,7 @@
 // pinned while no instance's record is published.
 export const LIVE = {
   'sepolia-liquid-testnet': {
-    head: 11399744,
-    lc: 'ad3465b37aeba00b8791d7cf8f595a0b174c2999a8f4689b56dc8d843e29156e',
+    head: 11403744,
+    lc: '18a94d39faf9ef6c917e860fac82926a6bc2ed709f9cc279a4c751562d254588',
   },
 };
