@@ -1,0 +1,17 @@
+[package]
+name = "bridge-operator"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Read-only operator commands for a deployed BridgeEscrow: federation, checkpoint, burn script, relay and redeem calldata, deposit list"
+
+# Its own workspace and lockfile, like the other tools. Nothing here signs or sends: it prints calldata and writes
+# the deposit list. Build with:
+#   cargo build --release --locked --manifest-path tools/bridge-operator/Cargo.toml
+[workspace]
+
+[dependencies]
+secp256k1 = "0.29"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tiny-keccak = { version = "2", features = ["keccak"] }

@@ -9,6 +9,7 @@
 /tools/sg16-harness/target/
 /tools/sg16/bridge-guest/target/
 /tools/sg16/liquid-testnet-wallet/target/
+/tools/bridge-operator/target/
 __pycache__/
 /CONTEXT.md
 /tasks/
