@@ -47,6 +47,16 @@
 //!       while no update has been walked
 //!   sg16-testnet synthetic-funding <value> <out.hex>
 //!       a SYNTHETIC explicit L-BTC output spending a fictional outpoint, for local tests only
+//!   sg16-testnet txid <tx.hex>
+//!       the txid of a transaction file: one hex string, surrounding whitespace allowed, that rust-elements reads
+//!       as exactly one transaction with no bytes left over
+//!   sg16-testnet output <tx.hex> <vout>
+//!       output `vout` (canonical decimal) of a transaction file read as by `txid`: its script, and its asset
+//!       (display hex) and value (sats) where explicit, null where confidential; "explicit_lbtc" says whether
+//!       both are explicit and the asset is Liquid testnet L-BTC.  A missing output fails as a gate
+//!   sg16-testnet input <tx.hex> <vin>
+//!       input `vin` (canonical decimal) of a transaction file read as by `txid`: the outpoint it spends
+//!       ("txid:vout", flags removed), whether it is a peg-in and whether it issues.  A missing input fails as a gate
 //!
 //! A manifest that is not `deployable` (dry run, stand-in leaf) is refused by bootstrap and update unless
 //! --local-test is given; their reports then carry "local_test_only": true.
@@ -83,7 +93,8 @@ const SCHEMA: &str = "liquid-bridge-poc/manifest";
 const STANDARD_WEIGHT: usize = 400_000;
 const MIN_RELAY_SAT_PER_KVB: u64 = 100;
 const USAGE: &str = "usage: sg16-testnet \
-    params|cmr|tree|bootstrap|check-bootstrap|update|verify|recover|synthetic-funding ... (see the source header)";
+    params|cmr|tree|bootstrap|check-bootstrap|update|verify|recover|synthetic-funding|txid|output|input ... \
+    (see the source header)";
 
 #[derive(Default)]
 struct Gates {
@@ -1306,6 +1317,76 @@ fn synthetic_funding(a: &[String], g: &mut Gates) -> Report {
     )
 }
 
+/// An input or output index as an operator types it: canonical decimal, so neither "01" nor "+1" names index 1.
+fn index(s: &str, what: &str) -> Result<u32, String> {
+    let n: u32 = parse(s, what)?;
+    if n.to_string() != s {
+        return Err(format!(
+            "{}: {:?} is not a canonical decimal index",
+            what, s
+        ));
+    }
+    Ok(n)
+}
+
+fn txid_cmd(a: &[String], g: &mut Gates) -> Report {
+    let tx = read_tx(&a[0])?;
+    g.need(true, "one Elements transaction, no bytes left over")?;
+    Ok(json!({"txid": tx.txid().to_string(), "path": a[0]}))
+}
+
+fn output_cmd(a: &[String], g: &mut Gates) -> Report {
+    let tx = read_tx(&a[0])?;
+    g.need(true, "one Elements transaction, no bytes left over")?;
+    let vout = index(&a[1], "vout")?;
+    let o = tx.output.get(vout as usize).ok_or_else(|| {
+        format!(
+            "{}: no output {}; the transaction has {}",
+            a[0],
+            vout,
+            tx.output.len()
+        )
+    })?;
+    g.need(true, "the output exists")?;
+    let asset = match o.asset {
+        Asset::Explicit(asset) => Some(asset.to_string()),
+        _ => None,
+    };
+    let value = match o.value {
+        Value::Explicit(value) => Some(value),
+        _ => None,
+    };
+    let lbtc = AssetId::from_str(TESTNET_LBTC).unwrap();
+    Ok(json!({
+        "txid": tx.txid().to_string(), "vout": vout, "outputs": tx.output.len(),
+        "script_pubkey": hex(o.script_pubkey.as_bytes()), "asset": asset, "value": value,
+        "explicit_lbtc": explicit_of(o).map(|(asset, _)| asset) == Some(lbtc),
+        "path": a[0],
+    }))
+}
+
+fn input_cmd(a: &[String], g: &mut Gates) -> Report {
+    let tx = read_tx(&a[0])?;
+    g.need(true, "one Elements transaction, no bytes left over")?;
+    let vin = index(&a[1], "vin")?;
+    let i = tx.input.get(vin as usize).ok_or_else(|| {
+        format!(
+            "{}: no input {}; the transaction has {}",
+            a[0],
+            vin,
+            tx.input.len()
+        )
+    })?;
+    g.need(true, "the input exists")?;
+    let spent = i.previous_output;
+    Ok(json!({
+        "txid": tx.txid().to_string(), "vin": vin, "inputs": tx.input.len(),
+        "previous_output": format!("{}:{}", spent.txid, spent.vout),
+        "is_pegin": i.is_pegin, "has_issuance": i.has_issuance(),
+        "path": a[0],
+    }))
+}
+
 fn main() {
     let all: Vec<String> = std::env::args().skip(1).collect();
     let local_test = all.iter().any(|x| x.as_str() == "--local-test");
@@ -1324,6 +1405,9 @@ fn main() {
         Some("verify") if a.len() >= 4 => verify(&a[1..], &mut g),
         Some("recover") if a.len() >= 4 => recover(&a[1..], &mut g),
         Some("synthetic-funding") if a.len() == 3 => synthetic_funding(&a[1..], &mut g),
+        Some("txid") if a.len() == 2 => txid_cmd(&a[1..], &mut g),
+        Some("output") if a.len() == 3 => output_cmd(&a[1..], &mut g),
+        Some("input") if a.len() == 3 => input_cmd(&a[1..], &mut g),
         _ => {
             eprintln!("{}", USAGE);
             std::process::exit(2);
@@ -1516,5 +1600,144 @@ mod tests {
         // An output that two candidates would make is refused, not resolved by order.
         let e = claim_index(&witness_with(5, 9), &claimed, |_| true).unwrap_err();
         assert!(e.contains("not one"), "{e}");
+    }
+
+    /// `text` in a fresh file named for the test case.
+    fn tx_file(case: &str, text: &str) -> String {
+        let path =
+            std::env::temp_dir().join(format!("sg16-testnet-{}-{}.hex", std::process::id(), case));
+        std::fs::write(&path, text).unwrap();
+        path.to_str().unwrap().to_string()
+    }
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Output 0 explicit L-BTC to a P2WPKH, output 1 confidential, output 2 explicit in another asset.
+    fn three_outputs() -> Transaction {
+        let secp = Secp256k1::new();
+        let lbtc = AssetId::from_str(TESTNET_LBTC).unwrap();
+        let other = AssetId::from_str(&"77".repeat(32)).unwrap();
+        let (spk, _) = bridge::p2wpkh(&SecretKey::from_slice(&bridge::FEE_SECRET).unwrap());
+        let tweak = |b: u8| Tweak::from_slice(&[b; 32]).unwrap();
+        let generator = Generator::new_blinded(&secp, lbtc.into_tag(), tweak(1));
+        let confidential = TxOut {
+            asset: Asset::Confidential(generator),
+            value: Value::Confidential(PedersenCommitment::new(&secp, 5_000, tweak(2), generator)),
+            nonce: Nonce::Null,
+            script_pubkey: spk.clone(),
+            witness: TxOutWitness::default(),
+        };
+        Transaction {
+            version: 2,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(Txid::from_byte_array([0x5f; 32]), 1),
+                is_pegin: false,
+                script_sig: Script::new(),
+                sequence: Sequence::MAX,
+                asset_issuance: Default::default(),
+                witness: TxInWitness::default(),
+            }],
+            output: vec![
+                explicit_out(lbtc, 120_000, spk),
+                confidential,
+                explicit_out(other, 7, Script::new()),
+            ],
+        }
+    }
+
+    #[test]
+    fn txid_and_outputs_are_rust_elements_reading_of_the_file() {
+        let tx = three_outputs();
+        let path = tx_file("three-outputs", &format!("\n{}\n", serialize_hex(&tx)));
+        let report = txid_cmd(&args(&[&path]), &mut Gates::default()).unwrap();
+        assert_eq!(report["txid"], json!(tx.txid().to_string()));
+
+        let output = |vout: &str| output_cmd(&args(&[&path, vout]), &mut Gates::default());
+        let lbtc = output("0").unwrap();
+        assert_eq!(lbtc["txid"], report["txid"]);
+        assert_eq!(lbtc["outputs"], json!(3));
+        assert_eq!(lbtc["asset"], json!(TESTNET_LBTC));
+        assert_eq!(lbtc["value"], json!(120_000));
+        assert_eq!(
+            lbtc["script_pubkey"],
+            json!(hex(tx.output[0].script_pubkey.as_bytes()))
+        );
+        assert_eq!(lbtc["explicit_lbtc"], json!(true));
+
+        let confidential = output("1").unwrap();
+        assert_eq!(confidential["asset"], Json::Null);
+        assert_eq!(confidential["value"], Json::Null);
+        assert_eq!(confidential["explicit_lbtc"], json!(false));
+
+        let other = output("2").unwrap();
+        assert_eq!(other["asset"], json!("77".repeat(32)));
+        assert_eq!(other["script_pubkey"], json!(""));
+        assert_eq!(other["explicit_lbtc"], json!(false));
+
+        let e = output("3").unwrap_err();
+        assert!(e.contains("no output 3; the transaction has 3"), "{e}");
+
+        let input = |vin: &str| input_cmd(&args(&[&path, vin]), &mut Gates::default());
+        let spend = input("0").unwrap();
+        assert_eq!(spend["txid"], report["txid"]);
+        assert_eq!(spend["inputs"], json!(1));
+        assert_eq!(
+            spend["previous_output"],
+            json!(format!("{}:1", "5f".repeat(32)))
+        );
+        assert_eq!(spend["is_pegin"], json!(false));
+        assert_eq!(spend["has_issuance"], json!(false));
+        let e = input("1").unwrap_err();
+        assert!(e.contains("no input 1; the transaction has 1"), "{e}");
+    }
+
+    /// An index is never read as another one, and a file is one transaction or nothing.
+    #[test]
+    fn malformed_indices_and_files_are_refused() {
+        let hex_tx = serialize_hex(&three_outputs());
+        let path = tx_file("indices", &hex_tx);
+        for (vout, fragment) in [
+            ("01", "canonical"),
+            ("+1", "canonical"),
+            ("-1", "cannot parse"),
+            ("", "cannot parse"),
+            ("1 ", "cannot parse"),
+            ("4294967296", "cannot parse"),
+        ] {
+            let e = output_cmd(&args(&[&path, vout]), &mut Gates::default()).unwrap_err();
+            assert!(e.contains(fragment), "vout {vout:?}: {e}");
+            let e = input_cmd(&args(&[&path, vout]), &mut Gates::default()).unwrap_err();
+            assert!(e.contains(fragment), "vin {vout:?}: {e}");
+        }
+        let not_a_tx = "not an Elements transaction";
+        for (case, text, fragment) in [
+            ("empty", String::new(), not_a_tx),
+            ("odd", format!("{}0", hex_tx), "hex"),
+            ("not-hex", format!("{}zz", hex_tx), "hex"),
+            (
+                "split",
+                format!("{} {}", &hex_tx[..20], &hex_tx[20..]),
+                "hex",
+            ),
+            ("trailing-byte", format!("{}00", hex_tx), not_a_tx),
+            (
+                "truncated",
+                hex_tx[..hex_tx.len() - 2].to_string(),
+                not_a_tx,
+            ),
+        ] {
+            let path = tx_file(case, &text);
+            let e = txid_cmd(&args(&[&path]), &mut Gates::default()).unwrap_err();
+            assert!(e.contains(fragment), "{case}: {e}");
+            let e = output_cmd(&args(&[&path, "0"]), &mut Gates::default()).unwrap_err();
+            assert!(e.contains(fragment), "{case}: {e}");
+            let e = input_cmd(&args(&[&path, "0"]), &mut Gates::default()).unwrap_err();
+            assert!(e.contains(fragment), "{case}: {e}");
+        }
+        let e = txid_cmd(&args(&["/nonexistent/tx.hex"]), &mut Gates::default()).unwrap_err();
+        assert!(e.starts_with("/nonexistent/tx.hex: "), "{e}");
     }
 }
