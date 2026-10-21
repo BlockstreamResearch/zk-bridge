@@ -19,7 +19,7 @@ set dotenv-load := false
 set export
 
 # The instance directory; its instance.json pins the escrow, deployment block and guest. The default is the
-# instance the published site serves (ui/config.js INSTANCE). Every chain walk prints which one it targets.
+# instance the published site serves (bridge-core/config.js INSTANCE). Every chain walk prints which one it targets.
 BRIDGE_INSTANCE := env("BRIDGE_INSTANCE", "instances/sepolia-liquid-testnet")
 # Optional cross-check: if set, it must equal the instance's ESCROW. The escrow always comes from the instance.
 BRIDGE_ESCROW := env("BRIDGE_ESCROW", "")
@@ -113,15 +113,15 @@ _prelude := '''
     ' "$BRIDGE_INSTANCE/instance.json" "$BRIDGE_ESCROW"
     }
     site() {  # whether the published site serves BRIDGE_INSTANCE: "served", or "not served: <every difference>"
-      # Served means all of ui/config.js INSTANCE: BRIDGE_INSTANCE is its record directory instances/<name>, and that
+      # Served means all of bridge-core/config.js INSTANCE: BRIDGE_INSTANCE is its record directory instances/<name>, and that
       # directory's escrow, code hash, bootstrap txid and manifest state address are the ones the page pins. An
       # escrow alone does not decide it: a copied or edited record with the same escrow is not what Pages publishes.
       local e b=""; e=$(escrow)
       [ ! -f "$BRIDGE_INSTANCE/bootstrap.hex" ] || b=$(txid_of "$BRIDGE_INSTANCE/bootstrap.hex" 2>/dev/null) || b=""
-      node --input-type=module - "$BRIDGE_INSTANCE" "$e" "$b" <<'JS' || die "could not compare $BRIDGE_INSTANCE with ui/config.js INSTANCE"
+      node --input-type=module - "$BRIDGE_INSTANCE" "$e" "$b" <<'JS' || die "could not compare $BRIDGE_INSTANCE with bridge-core/config.js INSTANCE"
     import { existsSync, readFileSync, realpathSync } from 'node:fs';
     const [dir, escrow, bootstrap] = process.argv.slice(2);
-    const { INSTANCE } = await import('./ui/config.js');
+    const { INSTANCE } = await import('./bridge-core/config.js');
     if (INSTANCE === null) { console.log('not served: the published site serves no instance'); process.exit(0); }
     const read = (f) => { try { return JSON.parse(readFileSync(`${dir}/${f}`, 'utf8')); } catch { return {}; } };
     const record = `instances/${INSTANCE.name}`;
@@ -138,9 +138,9 @@ _prelude := '''
     }
     site_name() {  # the record the published site serves, instances/<name>, or "no instance"
       node --input-type=module -e '
-    const { INSTANCE } = await import("./ui/config.js");
+    const { INSTANCE } = await import("./bridge-core/config.js");
     console.log(INSTANCE === null ? "no instance" : `instances/${INSTANCE.name}`);
-    ' || die "could not read the site's instance from ui/config.js"
+    ' || die "could not read the site's instance from bridge-core/config.js"
     }
     target() {  # one line: the instance and escrow this recipe acts on, and whether the published site serves them
       local e s; e=$(escrow); s=$(site)
@@ -500,7 +500,7 @@ deposits:
     mkdir -p "$BRIDGE_WORK"
     rm -f "$BRIDGE_WORK/deposits.report.json"
     # cli.js reads the URL from the environment, so it stays out of the process list.
-    node ui/cli.js deposits --escrow "$e" --from "$from" --step "$DEPOSIT_LOG_STEP" --pace "$DEPOSIT_LOG_PACE" \
+    node bridge-core/cli.js deposits --escrow "$e" --from "$from" --step "$DEPOSIT_LOG_STEP" --pace "$DEPOSIT_LOG_PACE" \
       --out "$BRIDGE_WORK/deposits.json" > "$BRIDGE_WORK/deposits.report.json"
     echo "$(jget "$BRIDGE_WORK/deposits.report.json" deposits) deposit(s) to escrow $e final through Sepolia block $(jget "$BRIDGE_WORK/deposits.report.json" to_block)"
 
@@ -793,8 +793,8 @@ update-unsigned txid vout: (_humid-site "update") recover
     fi
     node --input-type=module - "$w/update.hex" "$st" "$fee" "$BRIDGE_INSTANCE/manifest.json" <<'JS'
     import { readFileSync } from 'node:fs';
-    import { hexToBytes } from './ui/lib/bytes.js';
-    import { readUpdate, updatePset } from './ui/lib/update.js';
+    import { hexToBytes } from './bridge-core/lib/bytes.js';
+    import { readUpdate, updatePset } from './bridge-core/lib/update.js';
     const [update, state, fee, manifest] = process.argv.slice(2);
     const cmr = hexToBytes(JSON.parse(readFileSync(manifest, 'utf8')).update_leaf.cmr);
     const raw = hexToBytes(readFileSync(update, 'utf8').trim());
@@ -911,7 +911,7 @@ stage-store mode="signed":
     print(f"staged {dst} and the {pre_path} entry for head {entry['head']}, update {entry['update']}")
     print("next: review git diff, publish both files, read them back, then send the update")
     PY
-    RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test ui/test/lc-store.test.js
+    RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test bridge-core/test/lc-store.test.js
 
 # Write the store `just reconstruct` rebuilt for the live head into the instance, under the update that reached that
 # head (working tree only; you review and publish). Later provers then need neither the beacon data it came from nor
@@ -935,7 +935,7 @@ stage-recovered: recover
     fi
     echo "staged $(jget "$BRIDGE_WORK/stage-recovered.json" result store) and its lc_preimages.json entry, naming update" \
       "$(jget "$BRIDGE_WORK/stage-recovered.json" result entry update)"
-    RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test ui/test/lc-store.test.js
+    RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test bridge-core/test/lc-store.test.js
     echo "next: review git diff, then publish both files with the instance record"
 
 # Build, sign and verify the claim of any proven, unclaimed deposit from freshly recovered state. Sends nothing.
@@ -987,8 +987,8 @@ claim-unsigned txid vout deposit: (_humid-site "claim") recover deposits
     fi
     node --input-type=module - "$w/claim.hex" "$st" "$fee" "$BRIDGE_INSTANCE/manifest.json" <<'JS'
     import { readFileSync } from 'node:fs';
-    import { hexToBytes } from './ui/lib/bytes.js';
-    import { claimParams, claimPset, readClaim } from './ui/lib/claim.js';
+    import { hexToBytes } from './bridge-core/lib/bytes.js';
+    import { claimParams, claimPset, readClaim } from './bridge-core/lib/claim.js';
     const [claim, state, fee, manifest] = process.argv.slice(2);
     const c = readClaim(hexToBytes(readFileSync(claim, 'utf8').trim()), claimParams(JSON.parse(readFileSync(manifest, 'utf8'))));
     const plan = claimPset(c, readFileSync(state, 'utf8').trim(), readFileSync(fee, 'utf8').trim());
@@ -1044,7 +1044,7 @@ preflight file:
       [ -z "$r" ] || die "the fee slot $fee:0 is already spent by ${r%% *}; split a fresh fee slot"
     fi
     if [ "$kind" = update ]; then
-      RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test ui/test/lc-store.test.js
+      RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test bridge-core/test/lc-store.test.js
       head=$(jget "$(jget "$m" new_state)" head)
       store="$BRIDGE_INSTANCE/lc_stores/$head.json"
       need "$store" "run: just stage-store"
@@ -1626,4 +1626,4 @@ deploy-verify:
     fi
     echo "bootstrap $id verified against $BRIDGE_INSTANCE and escrow $e's BRIDGE_ASSET"
     echo "next, to open deposits: relay Liquid to its tip (relay.py batches) and send a fork proof (fork_proof.py build --escrow $e);"
-    echo "then review the record, set ui/config.js INSTANCE and the live-state pin in their own commit, and publish"
+    echo "then review the record, set bridge-core/config.js INSTANCE and the live-state pin in their own commit, and publish"

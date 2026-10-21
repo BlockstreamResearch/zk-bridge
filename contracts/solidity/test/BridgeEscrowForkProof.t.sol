@@ -161,7 +161,7 @@ contract BridgeEscrowForkProofTest is SepoliaBeacon {
         escrow.checkFork(p);
     }
 
-    /// tools/liquid-relay/fork_proof.py and ui/lib/bridge.js encode checkFork's calldata by this signature.
+    /// tools/liquid-relay/fork_proof.py and bridge-core/lib/bridge.js encode checkFork's calldata by this signature.
     function testCheckForkSignature() public pure {
         require(
             BridgeEscrow.checkFork.selector

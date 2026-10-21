@@ -36,7 +36,7 @@ LC_TAG = hashlib.sha256(b'liquid-bridge-poc/lc').digest()
 CONFIG_TAG = hashlib.sha256(b'liquid-bridge-poc/eth-config').digest()
 
 # The update leaf's witness fields, in order (name, bits): one balanced product, read back by sg16-testnet
-# `recover` (testnet/tx/src/main.rs `update_fields`) and by ui/lib/update.js `updateFields`.
+# `recover` (testnet/tx/src/main.rs `update_fields`) and by bridge-core/lib/update.js `updateFields`.
 FIELDS = [('lc', 256), ('acc', 256), ('sibling', 256), ('new_lc', 256), ('new_acc', 256), ('exec_root', 256),
           ('claimed_root', 256), ('exec_block', 64), ('new_head', 64)]
 

@@ -519,7 +519,7 @@ contract BridgeEscrowTest is SepoliaBeacon {
     }
 
     /// The burn is a bare OP_RETURN whose one push names, in plain bytes, the tag, the chain, this escrow and the
-    /// recipient, as the interface (ui/lib/bridge.js burnTarget) and Humid's approval show it. Only that exact
+    /// recipient, as the interface (bridge-core/lib/bridge.js burnTarget) and Humid's approval show it. Only that exact
     /// encoding redeems. A wallet's Burn control (Elements destroyamount) pays a bare OP_RETURN with no payload; a
     /// P2WSH script, an OP_RETURN of one 32-byte push, the same payload pushed with OP_PUSHDATA1 or followed by a
     /// byte, and payloads naming another chain, escrow or recipient are all refused.
@@ -586,7 +586,7 @@ contract BridgeEscrowTest is SepoliaBeacon {
         escrow.redeem(recipient, b, ref);
     }
 
-    /// The redemption interface: ui/lib/bridge.js encodes these function signatures, finds redemptions by this
+    /// The redemption interface: bridge-core/lib/bridge.js encodes these function signatures, finds redemptions by this
     /// Redeemed topic and explains these errors by name, so a change here must change it too. The interface builds
     /// the burn script itself and checks it against burnScriptPubKey.
     function testRedemptionSelectorsErrorsAndEvent() public pure {

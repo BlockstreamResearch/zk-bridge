@@ -248,7 +248,7 @@ class DeployRecord(unittest.TestCase):
         self.assertEqual((store['head'], store['header'], store['committee'], store['lc']),
                          (a['slot'], '0x' + a['header'], '0x' + a['committee'], '0x' + a['lc']))
         # The starting store's entry: the anchor's head and roots and the store, and no update transaction, the
-        # form ui/test/lc-store.test.js requires of entry 0 at the anchor slot.
+        # form bridge-core/test/lc-store.test.js requires of entry 0 at the anchor slot.
         pre = json.loads((self.record / 'lc_preimages.json').read_text())
         self.assertEqual(pre['preimages'], [{'head': a['slot'], 'header': a['header'], 'committee': a['committee'],
                                              'store': self.store_rel}])

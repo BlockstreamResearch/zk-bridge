@@ -2,11 +2,11 @@
 
 A testnet bridge between Ethereum Sepolia and Liquid testnet. Liquid holds the bridge asset under Simplicity covenants that accept Ethereum deposits only with an SP1 proof of finalized Sepolia state. Ethereum pays redemptions after checking Liquid's signed block headers itself.
 
-**The bridge** is [`BridgeEscrow.sol`](contracts/solidity/contracts/BridgeEscrow.sol) on Sepolia; the [claim leaf](contracts/simplicity/README.md) and the generated SP1 update leaf on Liquid testnet; the Rust SP1 guest in `tools/sg16/bridge-guest/`; the relay tools; and `ui-react/`. The escrow admits deposits only inside a deposit window, while a recent EIP-4788 proof shows Sepolia on the fork its guest can prove, and while its Liquid light client is current. Redemptions are never gated. A burn is an explicit output of the bridge asset whose script is a bare 72-byte `OP_RETURN` naming the bridge, the chain, the escrow and the Ethereum recipient in plain bytes.
+**The bridge** is [`BridgeEscrow.sol`](contracts/solidity/contracts/BridgeEscrow.sol) on Sepolia; the [claim leaf](contracts/simplicity/README.md) and the generated SP1 update leaf on Liquid testnet; the Rust SP1 guest in `tools/sg16/bridge-guest/`; the relay tools; and `ui/`. The escrow admits deposits only inside a deposit window, while a recent EIP-4788 proof shows Sepolia on the fork its guest can prove, and while its Liquid light client is current. Redemptions are never gated. A burn is an explicit output of the bridge asset whose script is a bare 72-byte `OP_RETURN` naming the bridge, the chain, the escrow and the Ethereum recipient in plain bytes.
 
 **The instance** is one deployed escrow on Sepolia and one confirmed bootstrap on Liquid testnet, linked by their asset ID. Its record is `instances/sepolia-liquid-testnet/`: the escrow's pins, the manifest of its Liquid leaves, its initial state and bootstrap, and its light-client stores.
 
-**The interface** is built from `ui-react/`, published from `main` by the [GitHub Pages workflow](.github/workflows/pages.yml) at [kyrylr.github.io/liquid-poc-bridge](https://kyrylr.github.io/liquid-poc-bridge/). It serves that one instance for deposits, claims, burns and redemptions; check the latest Pages run and the escrow address shown by the loaded page before using it. A Liquid proof update needs a prover, which in practice the project's operator runs; the [operator instructions](OPERATOR.md) list those duties and how anyone can take them over.
+**The interface** is built from `ui/`, published from `main` by the [GitHub Pages workflow](.github/workflows/pages.yml) at [kyrylr.github.io/liquid-poc-bridge](https://kyrylr.github.io/liquid-poc-bridge/). It serves that one instance for deposits, claims, burns and redemptions; check the latest Pages run and the escrow address shown by the loaded page before using it. A Liquid proof update needs a prover, which in practice the project's operator runs; the [operator instructions](OPERATOR.md) list those duties and how anyone can take them over.
 
 This is research code: nothing here has a formal cryptographic audit, and Liquid testnet has a single block signer. Redemptions trust Liquid's block signers and a checkpoint. Deposits trust SP1 and its Groth16 verifier, a weak-subjectivity Sepolia anchor, and the sync committee. Read the trust assumptions in [`contracts/README.md`](contracts/README.md) before relying on anything.
 
@@ -20,8 +20,8 @@ This is research code: nothing here has a formal cryptographic audit, and Liquid
 | `tools/sg16-harness/` | Rust harness over stock `simplicity-lang` 0.9 that the assembly tools build on |
 | `tools/liquid-relay/` | Liquid header relay inputs for the light client, and the escrow's beacon fork-check proof |
 | `vectors/` | Every domain tag and the values derived from them, which the Solidity, Rust, Python and JavaScript implementations all check |
-| `ui-react/` | The React page, built with Vite to a static site |
-| `ui/` | Shared browser and CLI rules, tests, and the operator CLI |
+| `ui/` | The React page, built with Vite to a static site |
+| `bridge-core/` | Shared browser and CLI rules, tests, and the operator CLI |
 | `justfile` | Recipes for proving, claiming and deploying ([OPERATOR.md](OPERATOR.md#the-same-steps-with-just)); `broadcast` and `deploy-escrow` send transactions after their checks and a prompt |
 | `instances/` | The deployed instance's pins, manifest, initial state, bootstrap, light-client preimages and stores |
 | `vendor/` | Pinned dependencies, ignored by git and fetched by `tools/bootstrap-deps.py` |
@@ -55,7 +55,7 @@ cargo test --release --locked --manifest-path contracts/simplicity/Cargo.toml
 
 # 5. The shared browser rules, the React page, and the relay tools.
 npm --prefix ui test
-npm ci --prefix ui-react && npm --prefix ui-react run check
+npm ci --prefix ui && npm --prefix ui run check
 python3 tools/liquid-relay/test_liquid.py
 python3 tools/liquid-relay/test_beacon.py
 
@@ -70,7 +70,7 @@ python3 tools/sg16/bridge-guest/testnet/test_deploy_record.py     # just deploy-
 
 Some inputs exist only where they were produced, and tests that need them print a skip with the reason instead of failing: `test_liquid.py` reads live testnet transactions under `target/sg16-testnet-live/`; `test_testnet.py` takes real SP1 artifacts only from `--exec-artifact` and `--proof-artifact`, and its real-key section F (`--real`) runs only under the instance file `--artifact-instance` names. Section G checks the instance record under `instances/`.
 
-The guest, its proving and the remaining `tools/sg16` suites are documented in their own READMEs: [`tools/sg16/README.md`](tools/sg16/README.md), [`tools/sg16/bridge-guest/testnet/README.md`](tools/sg16/bridge-guest/testnet/README.md), [`tools/liquid-relay/README.md`](tools/liquid-relay/README.md), [`ui/README.md`](ui/README.md) and [`ui-react/README.md`](ui-react/README.md).
+The guest, its proving and the remaining `tools/sg16` suites are documented in their own READMEs: [`tools/sg16/README.md`](tools/sg16/README.md), [`tools/sg16/bridge-guest/testnet/README.md`](tools/sg16/bridge-guest/testnet/README.md), [`tools/liquid-relay/README.md`](tools/liquid-relay/README.md), [`bridge-core/README.md`](bridge-core/README.md) and [`ui/README.md`](ui/README.md).
 
 The [CI workflow](.github/workflows/ci.yml) runs routine deterministic checks on pull requests and pushes to `main`; it downloads pinned public dependencies but does not read live chain state. The manual [Pages workflow](.github/workflows/pages.yml) requires CI before staging and publishing the site. CI checks the responsive React fixture with Chrome at desktop and narrow-phone widths. It does not broadcast transactions, generate an SP1 proof, or run the long folded-verifier tests. Those require the operator's separate proof and deployment checks.
 
@@ -88,4 +88,4 @@ Every domain tag is `liquid-bridge-poc/<purpose>`: `state`, `claimed`, `lc`, `up
 
 The Liquid testnet assembly builds unsigned transactions. The relay tools and CLI print calldata; they do not broadcast by themselves. The web app asks a connected Sepolia wallet to send deposits, relay batches and redemptions after simulating the contract call. Deployment is a separate operator step.
 
-`tools/sg16/liquid-testnet-wallet` is the local key-file signer. It is the operator's minimal testnet wallet: it generates one key into a mode-0600 file the operator names, and signs only explicit testnet UTXOs. Keep that file under the ignored `target/` or outside the repository. The browser wallet signs Sepolia transactions. Deployment and public testnet transactions are operator steps, listed in order in `contracts/README.md` and `tools/liquid-relay/README.md`. The services a live instance needs afterwards (fork check, header relay, prover and Liquid update, claims), and what each costs and needs, are in [`OPERATOR.md`](OPERATOR.md). `.github/workflows/pages.yml` publishes the React build to GitHub Pages with the instance record it names (`ui-react/README.md`); none of those services can run there.
+`tools/sg16/liquid-testnet-wallet` is the local key-file signer. It is the operator's minimal testnet wallet: it generates one key into a mode-0600 file the operator names, and signs only explicit testnet UTXOs. Keep that file under the ignored `target/` or outside the repository. The browser wallet signs Sepolia transactions. Deployment and public testnet transactions are operator steps, listed in order in `contracts/README.md` and `tools/liquid-relay/README.md`. The services a live instance needs afterwards (fork check, header relay, prover and Liquid update, claims), and what each costs and needs, are in [`OPERATOR.md`](OPERATOR.md). `.github/workflows/pages.yml` publishes the React build to GitHub Pages with the instance record it names (`ui/README.md`); none of those services can run there.

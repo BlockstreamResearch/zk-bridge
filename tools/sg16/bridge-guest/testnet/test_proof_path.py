@@ -88,7 +88,7 @@ else:
     sys.exit(f'fake curl: unexpected URL {url}')
 '''
 
-# ui/test/lc-store.test.js is the ui's own suite; here only its invocation on the instance is recorded.
+# bridge-core/test/lc-store.test.js is the ui's own suite; here only its invocation on the instance is recorded.
 FAKE_NODE = r'''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ['FAKE_NODE_LOG'], 'a') as log:
@@ -366,7 +366,7 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ['FAKE_NODE_LOG'], 'a') as log:
     log.write(json.dumps([os.environ.get('RECORD_DIR')] + args) + '\n')
-if args[:2] == ['ui/cli.js', 'deposits']:
+if args[:2] == ['bridge-core/cli.js', 'deposits']:
     deposits = json.loads(os.environ['FAKE_DEPOSITS'])
     with open(args[args.index('--out') + 1], 'w') as out:
         json.dump(deposits, out)
@@ -508,7 +508,7 @@ class WithheldStore(unittest.TestCase):
         self.assertEqual([e for e in pre if e['head'] == WITHHELD_HEAD],
                          [{'head': WITHHELD_HEAD, 'header': WITHHELD_HEADER.hex(),
                            'committee': WITHHELD_COMMITTEE.hex(), 'update': self.update, 'store': rel}])
-        self.assertIn([str(self.record), '--test', 'ui/test/lc-store.test.js'], lines(self.tmp / 'node'))
+        self.assertIn([str(self.record), '--test', 'bridge-core/test/lc-store.test.js'], lines(self.tmp / 'node'))
         # The record now publishes the store, so recovery uses it and nothing is left to reconstruct or stage.
         r = self.just('reconstruct')
         self.assertEqual(r.returncode, 0, r.stderr)

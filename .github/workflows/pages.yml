@@ -28,9 +28,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: ui-react/package-lock.json
+          cache-dependency-path: ui/package-lock.json
       # Fails closed before anything else runs: the record must exist, config.js INSTANCE must name it, and
-      # ui/test/live-state.js must pin its live state. The build (vite.config.ts checkRecord) and the tests below then
+      # bridge-core/test/live-state.js must pin its live state. The build (vite.config.ts checkRecord) and the tests below then
       # check that the record pins exactly what INSTANCE hardcodes and reaches that live state.
       - name: Check the published instance record
         run: |
@@ -39,28 +39,28 @@ jobs:
             exit 1
           fi
           node --input-type=module -e '
-            const { INSTANCE } = await import("./ui/config.js");
-            const { LIVE } = await import("./ui/test/live-state.js");
+            const { INSTANCE } = await import("./bridge-core/config.js");
+            const { LIVE } = await import("./bridge-core/test/live-state.js");
             const record = process.env.RECORD;
             if (INSTANCE?.name !== record) {
-              throw new Error("ui/config.js INSTANCE names " + (INSTANCE?.name ?? "no instance")
+              throw new Error("bridge-core/config.js INSTANCE names " + (INSTANCE?.name ?? "no instance")
                 + ", but the site publishes instances/" + record + "/");
             }
             const live = Object.hasOwn(LIVE, record) ? LIVE[record] : undefined;
             if (!Number.isSafeInteger(live?.head) || live.head < 0 || !/^[0-9a-f]{64}$/.test(live.lc ?? "")) {
-              throw new Error("ui/test/live-state.js pins no live { head, lc } for instances/" + record + "/");
+              throw new Error("bridge-core/test/live-state.js pins no live { head, lc } for instances/" + record + "/");
             }'
       # Reusable CI already ran the code and instance tests. Build the exact files this workflow will upload;
-      # Vite also refuses an instance record that disagrees with ui/config.js.
+      # Vite also refuses an instance record that disagrees with bridge-core/config.js.
       - name: Build the React interface
-        run: npm ci --prefix ui-react && npm --prefix ui-react run build
+        run: npm ci --prefix ui && npm --prefix ui run build
       # The site is the React build at its root, with the one current instance record at instances/$RECORD/, and
       # nothing else: no other record, no symlink the upload would follow out of it, no dotfile, no fixture data.
       - name: Stage the page and its instance record
         run: |
           site="$RUNNER_TEMP/site"
           mkdir -p "$site/instances"
-          cp -R ui-react/dist/. "$site/"
+          cp -R ui/dist/. "$site/"
           cp -R "instances/$RECORD" "$site/instances/"
           fail() { echo "::error::$1"; exit 1; }
           test -f "$site/index.html" || fail 'The build has no index.html'
@@ -72,7 +72,7 @@ jobs:
           fi
       # The same light-client store gate on the staged copy, the files the artifact uploads.
       - name: Check the staged instance record
-        run: RECORD_DIR="$RUNNER_TEMP/site/instances/$RECORD" node --test ui/test/lc-store.test.js
+        run: RECORD_DIR="$RUNNER_TEMP/site/instances/$RECORD" node --test bridge-core/test/lc-store.test.js
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - name: Upload static site
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4

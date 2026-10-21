@@ -9,8 +9,6 @@
 /tools/sg16-harness/target/
 /tools/sg16/bridge-guest/target/
 /tools/sg16/liquid-testnet-wallet/target/
-/ui/node_modules/
-/ui/dist/
 __pycache__/
 /CONTEXT.md
 /tasks/

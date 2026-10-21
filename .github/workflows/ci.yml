@@ -74,18 +74,18 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: ui-react/package-lock.json
+          cache-dependency-path: ui/package-lock.json
       - name: Shared protocol vectors
         run: node vectors/record.mjs --check
       - name: Shared browser rules and CLI
-        run: npm --prefix ui test
+        run: npm ci --prefix ui && npm --prefix ui test
       # Typecheck, lint, tests and the production build, from the lockfile.
       - name: React page
-        run: npm ci --prefix ui-react && npm --prefix ui-react run check
+        run: npm ci --prefix ui && npm --prefix ui run check
       # The Ubuntu runner includes Google Chrome. The fixture build exercises desktop and narrow phone widths,
       # every scenario, and both collapsed and expanded panels without writing screenshot artifacts.
       - name: Responsive layout
-        run: npm --prefix ui-react run build:fixture && npm --prefix ui-react run check:layout
+        run: npm --prefix ui run build:fixture && npm --prefix ui run check:layout
 
   # The claim leaf, the harness, the assembly and wallet tools and their Python suites, which run the built tools.
   rust-python:
