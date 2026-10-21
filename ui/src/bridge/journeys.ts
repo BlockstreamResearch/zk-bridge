@@ -6,11 +6,30 @@ import type { BridgeEnv, DepositJourney, Journey } from './types';
 export const SETTINGS_KEY = 'liquid-bridge-poc.settings';
 export const JOURNEYS_KEY = 'liquid-bridge-poc.journeys';
 
+const ETH_TX = /^0x[0-9a-fA-F]{64}$/;
+const ETH_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const LIQUID_TX = /^[0-9a-f]{64}$/;
+const LIQUID_ADDRESS = /^(?:tex|tlq)1[02-9ac-hj-np-z]+$/;
+
+const is = (v: unknown, shape: RegExp) => typeof v === 'string' && shape.test(v);
+const isOrAbsent = (v: unknown, shape: RegExp) => v === undefined || v === null || is(v, shape);
+
+/**
+ * Whether the saved `j` has the shape this page writes in the fields that reach explorer links and API paths: hashes,
+ * txids, addresses and the burn's output. Storage is anyone's to edit, so a journey that does not is not this page's.
+ */
+function wellFormed(j: Journey): boolean {
+  if (j.kind === 'deposit') return is(j.txHash, ETH_TX) && isOrAbsent(j.address, LIQUID_ADDRESS) && isOrAbsent(j.claimTxid, LIQUID_TX);
+  return is(j.burnTxid, LIQUID_TX) && Number.isSafeInteger(j.vout) && j.vout >= 0
+    && is(j.recipient, ETH_ADDRESS) && isOrAbsent(j.payee, ETH_ADDRESS) && isOrAbsent(j.txHash, ETH_TX);
+}
+
+/** The journeys saved for `escrow`. Any other entry, or one not of the shape this page writes, is dropped. */
 export function loadJourneys(storage: BridgeEnv['storage'], escrow: string | undefined): Journey[] {
   try {
     const list: unknown = JSON.parse(storage.getItem(JOURNEYS_KEY) || '[]');
     return Array.isArray(list) ? list.filter((j): j is Journey => !!j && (j.kind === 'deposit' || j.kind === 'redeem')
-      && typeof j.id === 'string' && typeof j.escrow === 'string' && j.escrow.toLowerCase() === escrow) : [];
+      && typeof j.id === 'string' && typeof j.escrow === 'string' && j.escrow.toLowerCase() === escrow && wellFormed(j)) : [];
   } catch {
     return [];
   }

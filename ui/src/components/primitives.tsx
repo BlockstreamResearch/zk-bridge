@@ -3,6 +3,7 @@
 import { type ComponentProps, type ReactNode, useId } from 'react';
 import type { Tone } from '../bridge/journeys';
 import { useController } from '../bridge/context';
+import { linkAllowed } from '../content/links';
 
 export function ExtLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
   return (
@@ -13,10 +14,14 @@ export function ExtLink({ href, children, className }: { href: string; children:
   );
 }
 
-/** Text in which explorer and repository links (https://…) become links; nothing else is interpreted. */
+/**
+ * Text in which explorer and repository links (https://…) become links; nothing else is interpreted. The text may
+ * quote an API or a wallet, so a URL becomes a link only if the page may link to it (links.ts linkAllowed); any other
+ * stays text.
+ */
 export function Linkified({ text }: { text: string }) {
   const parts = text.split(/(https:\/\/[^\s)]+[^\s).,;])/g);
-  return <>{parts.map((p, i) => (i % 2 ? <ExtLink key={i} href={p}>{p}</ExtLink> : p))}</>;
+  return <>{parts.map((p, i) => (i % 2 && linkAllowed(p, null) ? <ExtLink key={i} href={p}>{p}</ExtLink> : p))}</>;
 }
 
 export function Pill({ tone, children }: { tone: Tone | 'idle'; children: ReactNode }) {
