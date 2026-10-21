@@ -49,6 +49,8 @@ async function activity(journeys: DepositJourney[], live: LiveState) {
   c.start();
   await c.restored;
   c.stop();
+  // Render the completed poll; mounting the provider must not start a second one in the background.
+  vi.spyOn(c, 'start').mockImplementation(() => {});
   render(<BridgeProvider controller={c}><ExpandedProvider><ActivityPanel onClaim={() => {}} /></ExpandedProvider></BridgeProvider>);
   const row = (i: number) => c.getSnapshot().journeys.find((j) => j.kind === 'deposit' && j.index === String(i)) as DepositJourney;
   return { c, row };
