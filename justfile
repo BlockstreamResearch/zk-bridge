@@ -695,13 +695,22 @@ execute: check-elf
 
 # Make and SDK-verify a Groth16 proof with the native CPU prover, then check it against the state.
 [group('prove')]
-[confirm("Generate an SP1 Groth16 proof now? It needs minutes to hours of CPU. [y/N]")]
+[confirm("Generate an SP1 Groth16 proof now? It can exceed 16 GB RAM and take minutes to hours. [y/N]")]
 prove: check-elf
     #!/usr/bin/env bash
     {{ _prelude }}
     [ ! -e "$BRIDGE_WORK/proof.json" ] || die "$BRIDGE_WORK/proof.json exists; move it aside first, a proof is costly to remake"
     check_inputs
-    "$BRIDGE_HOST_BIN" run --elf "$BRIDGE_ELF" "$BRIDGE_WORK/inputs.cbor" "$BRIDGE_WORK/proof.json" --prove
+    if "$BRIDGE_HOST_BIN" run --elf "$BRIDGE_ELF" "$BRIDGE_WORK/inputs.cbor" "$BRIDGE_WORK/proof.json" --prove; then
+      :
+    else
+      status=$?
+      if [ "$status" -eq 137 ]; then
+        echo "prover was killed (137), commonly from memory pressure; see OPERATOR.md: Proving with limited RAM" >&2
+        echo "move proof generation to a larger machine; proof.store.json alone is not a proof" >&2
+      fi
+      exit "$status"
+    fi
     check_artifact
 
 # Check the proof against the instance pins and the recovered state.

@@ -26,6 +26,46 @@ The page never needs a server of its own. It reads Sepolia through the user's wa
 - The prover host: SP1 6.8.1, Docker, and the guest ELF whose SHA-256 and vkey are the instance file's `GUEST_ELF_SHA256` and `PROGRAM_VKEY` ([build](tools/sg16/README.md); `sg16-bridge-host vkey --elf` prints both).
 - The instance's files: its `instances/<name>/` directory (instance file, manifest, initial state, bootstrap, light-client preimages and store files). It also needs the record of the current state. `assemble.py recover` rebuilds that record from the public bootstrap, update and claim transactions ([recovery](tools/sg16/bridge-guest/testnet/README.md#recovering-the-state)). `assemble.py update` also writes its successor beside its transaction.
 
+## Proving with limited RAM
+
+If `just prove` ends with `Killed: 9` or exit 137 after successful guest execution,
+the prover received SIGKILL. Memory pressure is a common cause. A successful
+`just execute` does not establish that there is enough RAM to generate a proof.
+
+Succinct's [hardware requirements](https://docs.succinct.xyz/docs/sp1/getting-started/hardware-requirements)
+list roughly 14 GB for the final Groth16 wrapping step alone. The OS and the rest
+of the prover also need memory. This bridge's proof generation is not validated
+on a 16 GB machine. A trial with fewer workers, smaller queues and smaller shards
+already exceeded 21 GiB of sampled process-tree RSS before completion on a 64 GB
+Mac. Those settings do not establish a usable 16 GB mode.
+
+Close other heavy applications, including Docker Desktop after building the
+guest. Raising Docker's limit will not help this native proving step. Swap may
+keep a run alive but can make it much slower. `RUST_LOG=info just prove` enables
+prover logs to help identify the failing stage; it does not reduce memory use.
+
+For a machine that still runs out of memory, move proof generation to a larger
+machine you control. Use the same repository revision and instance on both:
+
+1. On the original machine, run `just inputs execute`. Copy only
+   `target/takeover/inputs.cbor` and `target/takeover/state.json` to the same paths
+   on the proving machine. Keep wallet keys, `.env` files and RPC credentials local.
+2. On the proving machine, run `just deps tools prover check-elf`, then `just prove`.
+   Proof generation from saved inputs needs no wallet key or chain RPC credentials.
+   Dependency and proving-parameter downloads may still need Internet access.
+3. Copy `target/takeover/proof.json` and `target/takeover/proof.store.json` back.
+   Keep the pair together. On the original machine, run `just recover check-artifact`
+   before `just update-unsigned <Humid fee txid> <output number>`. The update builder
+   verifies the Groth16 proof locally. If the bridge state advanced meanwhile,
+   follow the new `just status <deposit number>` instructions instead.
+4. Load the unsigned update and store into the website and approve with Humid
+   as usual. Moving proof generation does not give that machine spending authority.
+
+After a killed run, `proof.store.json` may already exist: it is written before
+proving, and is not evidence that a proof finished. A retry can replace that store;
+the recipe refuses to overwrite an existing `proof.json`. Preserve any completed
+proof and its matching store before starting another one.
+
 ## Deploying the instance
 
 Deployment is an operator step: the recipes below check and prepare each part, and only the operator, at a prompt, sends. In order:

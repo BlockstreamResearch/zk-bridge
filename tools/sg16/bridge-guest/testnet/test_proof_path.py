@@ -63,6 +63,9 @@ elif cmd == 'anchor':
 elif cmd == 'run':
     with open(os.environ['FAKE_HOST_RUNS'], 'a') as log:
         log.write(json.dumps(sys.argv[1:]) + '\n')
+    if os.environ.get('FAKE_HOST_KILLED'):
+        import signal
+        os.kill(os.getpid(), signal.SIGKILL)
 else:
     sys.exit(f'fake host: unexpected {sys.argv[1:]}')
 '''
@@ -228,12 +231,14 @@ class ProofInputs(unittest.TestCase):
                          'slots': [{'key': '0x' + '00' * 32, 'value': '0x' + pins.EMPTY_ACCUMULATOR}]}],
         }
 
-    def run_recipe(self, recipe, summary):
+    def run_recipe(self, recipe, summary, killed=False):
         (self.tmp / 'anchor.json').write_text(json.dumps(summary))
         env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'FAKE_ANCHOR': str(self.tmp / 'anchor.json'),
                'FAKE_HOST_RUNS': str(self.tmp / 'runs'), 'BRIDGE_INSTANCE': str(INSTANCE),
                'BRIDGE_WORK': str(self.work), 'BRIDGE_ELF': str(self.tmp / 'elf')}
         env.pop('BRIDGE_ESCROW', None)
+        if killed:
+            env['FAKE_HOST_KILLED'] = '1'
         r = subprocess.run([JUST, '--yes', f'BRIDGE_HOST_BIN={self.bin / "sg16-bridge-host"}', recipe],
                            cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         return r, lines(self.tmp / 'runs')
@@ -250,6 +255,14 @@ class ProofInputs(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(len(runs), 1)
         self.assertIn('--prove', runs[0])
+
+    def test_killed_prover_reports_recovery_without_accepting_an_artifact(self):
+        r, runs = self.run_recipe('prove', self.summary(), killed=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(len(runs), 1)
+        self.assertIn('prover was killed (137)', r.stderr)
+        self.assertIn('proof.store.json alone is not a proof', r.stderr)
+        self.assertNotIn('proof accepted', r.stdout)
 
     def test_inputs_that_do_not_fit_are_refused_before_the_guest_runs(self):
         def edit(f):

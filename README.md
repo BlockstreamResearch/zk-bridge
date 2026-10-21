@@ -66,6 +66,8 @@ The recipes also use the `bash` and `curl` commands supplied with macOS.
 
 Enable Liquid testnet in Humid and Sepolia in the Ethereum wallet. You need tL-BTC for Liquid fees and SepETH for the deposit and Ethereum gas. Keep Docker running for `just prover`, which builds the pinned guest ELF. The current `just prove` uses the native CPU prover.
 
+Local proof generation can exhaust a 16 GB machine. You can generate the proof on a larger machine and keep wallet signing local. See [proving with limited RAM](OPERATOR.md#proving-with-limited-ram) for the limits and steps.
+
 ### Steps to complete the claim on Liquid
 
 These steps finish an existing deposit made through the [website](https://blockstreamresearch.github.io/zk-bridge/) to the current bridge instance. Use the deposit number shown in Activity. The paths below assume the default `BRIDGE_INSTANCE` and `BRIDGE_WORK` settings.
