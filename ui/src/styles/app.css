@@ -37,7 +37,7 @@
   --r-ctl: 6px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   /* Activity rows and their header share one grid. */
-  --cols: 88px minmax(0, 1fr) 176px 112px 16px;
+  --cols: 88px 88px minmax(0, 1fr) 176px 112px 16px;
   color-scheme: light;
 }
 
@@ -1218,7 +1218,7 @@ table.facts td {
 .journey > summary {
   display: grid;
   grid-template-columns: var(--cols);
-  grid-template-areas: "kind title meta status chev";
+  grid-template-areas: "kind number title meta status chev";
   align-items: center;
   gap: 16px;
   padding: 14px 18px;
@@ -1244,16 +1244,20 @@ table.facts td {
 }
 .journey-title {
   grid-area: title;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
   min-width: 0;
   font: 600 15px/1.35 var(--sans);
   overflow-wrap: anywhere;
   transition: color 0.15s;
 }
+.journey-number {
+  grid-area: number;
+  min-width: 0;
+  justify-self: start;
+  color: var(--ink-2);
+  font-size: 13px;
+}
 .journey-deposit-number {
+  display: inline-block;
   max-width: 100%;
   padding: 3px 8px;
   border-radius: var(--r-ctl);
@@ -1261,6 +1265,7 @@ table.facts td {
   color: var(--accent);
   font: 700 13px/1.35 var(--sans);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .journey-meta {
   grid-area: meta;
@@ -1591,7 +1596,7 @@ table.facts td {
 
 @media (max-width: 960px) {
   :root {
-    --cols: 80px minmax(0, 1fr) 150px 104px 16px;
+    --cols: 80px 76px minmax(0, 1fr) 150px 104px 16px;
   }
   .stats {
     gap: 16px;
@@ -1707,7 +1712,8 @@ table.facts td {
   .journey > summary {
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "kind status chev"
+      "kind number chev"
+      "status status status"
       "title title title"
       "meta meta meta";
     gap: 6px 8px;

@@ -41,10 +41,12 @@ function JourneyRow({ j, kind, title, steps, extras, actions }: {
     }}>
       <summary>
         <span className="journey-kind" data-kind={j.kind}>{kind}</span>
-        <span className="journey-title">
-          {j.kind === 'deposit' && j.index != null ? <span className="journey-deposit-number">Deposit #{j.index}</span> : null}
-          <span>{title}</span>
+        <span className="journey-number">
+          {j.kind === 'deposit' && (j.index != null
+            ? <span className="journey-deposit-number"><span className="sr-only">Deposit </span>#{j.index}</span>
+            : 'Pending')}
         </span>
+        <span className="journey-title">{title}</span>
         <span className="journey-meta">{new Date(j.created).toLocaleString()}</span>
         {/* Keyed by status, so a change replays the pill's arrival. */}
         <Pill key={j.status} tone={tone}>{text}</Pill>
@@ -240,7 +242,7 @@ export function ActivityPanel({ onClaim }: { onClaim: () => void }) {
       {journeys.length
         ? <>
           {/* Column labels for the rows' grid; each row's own text says the same to assistive technology. */}
-          <div className="table-head" aria-hidden="true"><span>Type</span><span>Transfer</span><span>Started</span><span>Status</span></div>
+          <div className="table-head" aria-hidden="true"><span>Type</span><span>Deposit #</span><span>Transfer</span><span>Started</span><span>Status</span></div>
           <JourneyList onClaim={onClaim} />
         </>
         : <p className="empty">Nothing yet. Deposits and redemptions you start here are saved in this browser.</p>}

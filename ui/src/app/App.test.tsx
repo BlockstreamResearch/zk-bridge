@@ -96,7 +96,7 @@ describe('the original layout', () => {
     await user.click(screen.getByRole('tab', { name: /Activity/ }));
     const activity = screen.getByRole('tabpanel', { name: /Activity/ });
     await waitFor(() => expect(activity.querySelector('.table-head + .journeys')).not.toBeNull());
-    expect(activity.querySelector('.table-head')?.textContent).toBe('TypeTransferStartedStatus');
+    expect(activity.querySelector('.table-head')?.textContent).toBe('TypeDeposit #TransferStartedStatus');
   });
 });
 
