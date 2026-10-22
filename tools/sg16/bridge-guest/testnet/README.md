@@ -114,7 +114,7 @@ python3 tools/sg16/bridge-guest/testnet/assemble.py claim --instance $I --manife
     --deposit <index> --state-tx <update.hex> --fee-tx <fee funding.hex> --fee-vout <n> --out <claim.hex>
 ```
 
-The fee input of an update or claim is spent entirely as the fee: both leaves fix the output count, so there is no change. Use a fee UTXO sized for the transaction, about 95 kvB for an update. The builders refuse a fee input above 100 times the relay floor (at least 50,000 sat allowed), so a mistyped outpoint cannot burn a large UTXO.
+The fee input of an update or claim is spent entirely as the fee: both leaves fix the output count, so there is no change. Use a fee UTXO sized for the transaction, about 15 kvB for an optimized update. The builders refuse a fee input above 100 times the relay floor (at least 50,000 sat allowed), so a mistyped outpoint cannot burn a large UTXO.
 
 `--deposits` lists the escrow's `Deposit` events in index order, each `[units, "scriptPubKey hex"]`, taken from the event's `scriptPubKey`. The recipient is its SHA-256, and the claim pays exactly that script. The claim tool refuses a script `BridgeDeposits.recipientOf` would not have accepted. The accepted forms are P2PKH, P2SH, P2WPKH, P2WSH and P2TR with an on-curve key.
 
