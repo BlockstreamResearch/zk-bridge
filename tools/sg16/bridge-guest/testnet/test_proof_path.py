@@ -66,6 +66,10 @@ elif cmd == 'run':
     if os.environ.get('FAKE_HOST_KILLED'):
         import signal
         os.kill(os.getpid(), signal.SIGKILL)
+    if os.environ.get('FAKE_EXPORT_MODE'):
+        from pathlib import Path
+        Path(sys.argv[5]).write_text('{}')
+        Path(sys.argv[5]).with_suffix('.store.json').write_text('{}')
 else:
     sys.exit(f'fake host: unexpected {sys.argv[1:]}')
 '''
@@ -231,7 +235,7 @@ class ProofInputs(unittest.TestCase):
                          'slots': [{'key': '0x' + '00' * 32, 'value': '0x' + pins.EMPTY_ACCUMULATOR}]}],
         }
 
-    def run_recipe(self, recipe, summary, killed=False, profile=None):
+    def run_recipe(self, recipe, summary, killed=False, profile=None, export_mode=None):
         (self.tmp / 'anchor.json').write_text(json.dumps(summary))
         env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'FAKE_ANCHOR': str(self.tmp / 'anchor.json'),
                'FAKE_HOST_RUNS': str(self.tmp / 'runs'), 'BRIDGE_INSTANCE': str(INSTANCE),
@@ -240,6 +244,25 @@ class ProofInputs(unittest.TestCase):
         if killed:
             env['FAKE_HOST_KILLED'] = '1'
         args = [recipe] + ([profile] if profile is not None else [])
+        if export_mode:
+            # A recipe-level stand-in; test_proof_bundle.py covers the actual export gates.
+            env['FAKE_EXPORT_MODE'] = export_mode
+            exporter = self.tmp / 'exporter.py'
+            exporter.write_text(r'''import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+assert args[0] == 'export-proof', args
+assert '--local-test' not in args and '--no-pairing' not in args
+flag = lambda key: Path(args[args.index(key) + 1])
+mode = os.environ['FAKE_EXPORT_MODE']
+report = {'ok': mode != 'fail', 'result': {'exec_block': 123}, 'failed_gate': 'stand-in export failure'}
+flag('--report').write_text(json.dumps(report))
+if mode == 'fail':
+    sys.exit(3)
+if mode != 'missing-output':
+    flag('--out').write_text(json.dumps({'schema': 'zk-bridge/browser-proof'}))
+''')
+            args.insert(0, f'ASSEMBLE_PY={exporter}')
         r = subprocess.run([JUST, '--yes', f'BRIDGE_HOST_BIN={self.bin / "sg16-bridge-host"}', *args],
                            cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         return r, lines(self.tmp / 'runs')
@@ -272,6 +295,31 @@ class ProofInputs(unittest.TestCase):
         self.assertIn('not a RAM cap or verified 16 GB support', r.stdout)
         self.assertEqual(len(runs), 1)
         self.assertIn('--prove', runs[0])
+
+    def test_successful_prove_exports_bundle_before_upload_instruction(self):
+        r, runs = self.run_recipe('prove', self.summary(), export_mode='success')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(runs), 1)
+        self.assertIn('proof accepted:', r.stdout)
+        self.assertIn(f'upload {self.work / "proof.browser.json"}', r.stdout)
+
+    def test_failed_export_never_prints_success_or_upload_instruction(self):
+        (self.work / 'proof.browser.json').write_text('stale previous export')
+        r, runs = self.run_recipe('prove', self.summary(), export_mode='fail')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(len(runs), 1)
+        self.assertIn('stand-in export failure', r.stderr)
+        self.assertNotIn('proof accepted:', r.stdout)
+        self.assertNotIn('upload ', r.stdout)
+        self.assertFalse((self.work / 'proof.browser.json').exists())
+        self.assertTrue((self.work / 'proof.json').exists(), 'the expensive proof is retained')
+
+    def test_export_success_without_output_never_prints_success(self):
+        r, _ = self.run_recipe('prove', self.summary(), export_mode='missing-output')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('export did not write a browser bundle', r.stderr)
+        self.assertNotIn('proof accepted:', r.stdout)
+        self.assertNotIn('upload ', r.stdout)
 
     def test_unknown_prover_profile_does_not_start_a_proof(self):
         r, runs = self.run_recipe('prove', self.summary(), profile='unknown')
@@ -611,6 +659,15 @@ class WithheldStore(unittest.TestCase):
         self.assertEqual((call[call.index('--store') + 1], call[call.index('--lc') + 1]),
                          (str(self.rebuilt), WITHHELD_LC))
         self.assertEqual(len(self.host_calls('reconstruct')), 1, 'inputs reconstructs nothing itself')
+
+    def test_proof_bundle_recovers_current_state_without_running_a_prover(self):
+        r = self.just('proof-bundle')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.state()['lc'], WITHHELD_LC)
+        self.assertIn('proof.json is missing', r.stderr)
+        self.assertEqual(self.host_calls('run'), [])
+        self.assertNotIn('proof accepted:', r.stdout)
+        self.assertNotIn('upload ', r.stdout)
 
     def test_pruned_beacon_data_is_never_called_recovered(self):
         r = self.just('reconstruct', FAKE_BEACON='pruned')

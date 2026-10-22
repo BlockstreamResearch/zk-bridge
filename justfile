@@ -282,6 +282,29 @@ _prelude := '''
       [[ "$proof_block" =~ ^[0-9]+$ ]] || die "$BRIDGE_WORK/check-artifact.json has an invalid proved execution block"
       echo "proof accepted: proves through Sepolia block $proof_block"
     }
+    proof_bundle() {
+      need "$BRIDGE_WORK/proof.json" "run: just prove"
+      need "$BRIDGE_WORK/state.json" "run: just recover"
+      need "$BRIDGE_WORK/proof.store.json" "the prover must finish and write its successor store"
+      rm -f "$BRIDGE_WORK/proof.browser.json" "$BRIDGE_WORK/proof-bundle.json"
+      if ! python3 "$ASSEMBLE_PY" export-proof --report "$BRIDGE_WORK/proof-bundle.json" \
+          --instance "$BRIDGE_INSTANCE/instance.json" --manifest "$BRIDGE_INSTANCE/manifest.json" \
+          --artifact "$BRIDGE_WORK/proof.json" --state "$BRIDGE_WORK/state.json" \
+          --store "$BRIDGE_WORK/proof.store.json" --out "$BRIDGE_WORK/proof.browser.json" \
+          > "$BRIDGE_WORK/proof-bundle.log"; then
+        gate "$BRIDGE_WORK/proof-bundle.json"
+        die "proof bundle was not exported; see $BRIDGE_WORK/proof-bundle.log. Keep proof.json and retry with just proof-bundle"
+      fi
+      need "$BRIDGE_WORK/proof.browser.json" "export did not write a browser bundle"
+      [ "$(jget "$BRIDGE_WORK/proof-bundle.json" ok)" = true ] || die "proof bundle export did not pass its gates"
+      [ "$(jget "$BRIDGE_WORK/proof.browser.json" schema)" = zk-bridge/browser-proof ] || die "invalid proof bundle"
+      proof_block=$(jget "$BRIDGE_WORK/proof-bundle.json" result exec_block) \
+        || die "proof bundle report does not name a proved execution block"
+      [[ "$proof_block" =~ ^[0-9]+$ ]] || die "proof bundle report has an invalid proved execution block"
+      echo "proof accepted: proves through Sepolia block $proof_block"
+      echo "upload $BRIDGE_WORK/proof.browser.json in the website update panel"
+      echo "if claims change the state before upload, run just proof-bundle again; this reuses the proof"
+    }
     check_inputs() {  # refuse inputs.cbor unless it starts from the recovered state and reads this escrow's slot 0
       need "$BRIDGE_WORK/inputs.cbor" "run: just inputs"
       need "$BRIDGE_WORK/state.json" "run: just inputs"
@@ -730,7 +753,14 @@ prove profile="default": check-elf
       fi
       exit "$status"
     fi
-    check_artifact
+    proof_bundle
+
+# Export an existing proof for the website using the live state. Claims need a fresh witness, not a new proof.
+[group('prove')]
+proof-bundle: recover
+    #!/usr/bin/env bash
+    {{ _prelude }}
+    proof_bundle
 
 # Check the proof against the instance pins and the recovered state.
 [group('prove')]

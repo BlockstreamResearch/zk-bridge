@@ -12,6 +12,7 @@ stops the command with exit status 3 and names the gate.
                                instance guest's program vkey; minutes), the initial state at the instance anchor,
                                the state tree and its address (two taproot implementations)
     check-artifact             the gates on an `sg16-bridge-host run --prove` artifact (no transaction)
+    export-proof               the checked proof, program, witness and successor store for the browser (no transaction)
     bootstrap                  the unsigned issuance transaction creating the first state UTXO
     verify-bootstrap           anyone's check of a public bootstrap against the manifest
     update                     the update transaction from a REAL proof artifact (input 0 complete, fee input unsigned)
@@ -76,6 +77,7 @@ from groth.sym import Num  # noqa: E402
 TARGET = ROOT / 'tools' / 'sg16' / 'bridge-guest' / 'target'
 TX_TOOL = Path(os.environ.get('SG16_TESTNET_TX', TARGET / 'testnet-tx' / 'release' / 'sg16-testnet'))
 CLAIM_TOOL = Path(os.environ.get('SG16_TESTNET_CLAIM', TARGET / 'testnet-claim' / 'release' / 'sg16-testnet-claim'))
+HOST_TOOL = Path(os.environ.get('BRIDGE_HOST_BIN', TARGET / 'release' / 'sg16-bridge-host'))
 V6 = ROOT / 'vendor' / 'sp1-helios' / 'contracts' / 'lib' / 'sp1-contracts' / 'contracts' / 'src' / 'v6.1.0'
 SCHEMA = 'liquid-bridge-poc/manifest'
 DRY_RUN_TXID = pins.sha(b'sg16 testnet dry-run bootstrap outpoint (not a transaction)').hex()
@@ -511,18 +513,19 @@ def cmd_bootstrap(a, g):
     return r
 
 
-def cmd_update(a, g):
-    inst = instance(g, a.instance)
-    m = load_manifest(a.manifest)
+def prepare_update(g, inst, m, state, art, local_test=False):
+    """The transaction-independent update witness and successor, shared by the CLI and browser export."""
     manifest_gates(g, m, inst)
-    g.need('manifest has a compiled update leaf', not m['update_leaf'].get('stand_in') or a.local_test)
-    state = json.loads(Path(a.state).read_text())
+    g.need('manifest has a compiled update leaf', not m['update_leaf'].get('stand_in') or local_test)
     claimed, root = state_claimed(g, state)
-    art = json.loads(Path(a.artifact).read_text())
     keys = sp1_keys(g, inst)
     r = check_artifact(g, art, keys, inst, state)
+    lc_ = state_lc(state)
+    g.need('the spent state record recomputes its lc and state hash',
+           state.get('lc') == lc_.hex()
+           and state.get('state_hash') == pins.state_hash(lc_, b32(state['acc']), root).hex())
     o = r['outputs']
-    fields = dict(lc=state_lc(state), acc=b32(state['acc']),
+    fields = dict(lc=lc_, acc=b32(state['acc']),
                   sibling=pins.tapleaf_simplicity(b32(m['claim_leaf']['cmr'])), new_lc=o['new_lc'],
                   new_acc=o['slot_value'], exec_root=o['exec_root'], claimed_root=root,
                   exec_block=o['exec_block'], new_head=o['new_head'])
@@ -532,16 +535,113 @@ def cmd_update(a, g):
     wit = gn.witness_fields(r['proof'], [r['digest']], fields)
     g.need('numeric Groth16 model accepts the real proof with the folded key', wit is not None)
     gn.verify(gn.num_input(wit))
-    out = Path(a.out)
-    wpath = write_json(out.with_suffix('.witness.json'), {'w_in': gn.witness_value(wit)})
     succ = art['successor']
     new = state_record(o['new_head'], b32(succ['header']), b32(succ['committee']), o['slot_value'], claimed,
                        exec_root=o['exec_root'].hex(), exec_block=o['exec_block'])
+    return {'w_in': gn.witness_value(wit)}, new
+
+
+def cmd_update(a, g):
+    inst = instance(g, a.instance)
+    m = load_manifest(a.manifest)
+    state = json.loads(Path(a.state).read_text())
+    art = json.loads(Path(a.artifact).read_text())
+    witness, new = prepare_update(g, inst, m, state, art, a.local_test)
+    out = Path(a.out)
+    wpath = write_json(out.with_suffix('.witness.json'), witness)
     npath = write_json(out.with_suffix('.new_state.json'), new)
     args = ['update', a.manifest, m['update_leaf']['program'], wpath, a.state, npath, a.state_tx, a.state_vout,
             a.fee_tx, a.fee_vout, out]
     t = tool_ok(g, 'update transaction gates and node-like execution', TX_TOOL, *args, *local_test_flag(a))
     return dict(t, new_state=str(npath))
+
+
+def export_program(g, m, manifest_path):
+    """Read the pinned program, also allowing a record copied from another checkout."""
+    leaf = m['update_leaf']
+    path = Path(leaf['program'])
+    if not path.is_file():
+        path = Path(manifest_path).parent / 'update_leaf.simpl'
+    g.need('the pinned update program is available', path.is_file(),
+           f"restore {leaf['program']} or place update_leaf.simpl beside the manifest")
+    raw = path.read_bytes()
+    g.need('update leaf program text = the compiled text (SHA-256)',
+           pins.sha(raw).hex() == leaf['text_sha256'])
+    return raw.decode('utf-8')
+
+
+def compile_browser_proof(g, program, witness, cmr, out):
+    """Canonical program and witness bytes; no transaction or outpoint enters this compilation."""
+    program_path = out.with_suffix('.simpl')
+    program_path.parent.mkdir(parents=True, exist_ok=True)
+    program_path.write_text(program)
+    witness_path = write_json(out.with_suffix('.witness.json'), witness)
+    compiled_path = out.with_suffix('.compiled.json')
+    compiled_path.unlink(missing_ok=True)
+    try:
+        r = tool_ok(g, 'update program and witness compile to canonical bytes', TX_TOOL, 'compile-update',
+                    program_path, witness_path, compiled_path)
+    except Gate as e:
+        raise Gate('proof compiler failed; keep proof.json. If compile-update is unavailable, run just tools, '
+                   f'then just proof-bundle. No new SP1 proof is needed. Details: {e}') from e
+    g.need('compiler wrote canonical program and witness', compiled_path.is_file())
+    try:
+        compiled = json.loads(compiled_path.read_text())
+    except ValueError as e:
+        raise Gate(f'compiler output JSON: {e}') from e
+    g.need('compiler output is an object', isinstance(compiled, dict))
+    g.need('update leaf CMR recomputed from the program = manifest update CMR',
+           compiled.get('cmr') == cmr and r.get('cmr') == cmr, compiled.get('cmr'))
+    for field in ('program', 'witness'):
+        value = compiled.get(field + '_hex')
+        g.need(f'compiled {field} is nonempty canonical hex',
+               isinstance(value, str) and re.fullmatch(r'(?:[0-9a-f]{2})+', value) is not None)
+        g.need(f'compiled {field} length = compiler report', len(value) // 2 == r.get(field + '_bytes'))
+    return {k: compiled[k] for k in ('program_hex', 'witness_hex', 'cmr')}
+
+
+def successor_store(g, path, new):
+    """Check both the store's declared roots and its CBOR before sharing the complete file."""
+    raw = Path(path).read_bytes()
+    store = json.loads(raw)
+    norm = lambda x: str(x).lower().removeprefix('0x')
+    g.need('successor store roots = the proof successor',
+           all(norm(store.get(k)) == norm(new[k]) for k in ('head', 'header', 'committee', 'lc')))
+    g.need('the host is available to check the successor store CBOR', HOST_TOOL.is_file(),
+           f'{HOST_TOOL} missing: run just host')
+    r = subprocess.run([str(HOST_TOOL), 'check-store', str(path), '--lc', new['lc']],
+                       capture_output=True, text=True, timeout=120)
+    g.need('successor store CBOR hashes to the proof successor lc', r.returncode == 0, r.stderr[-1500:])
+    checked = json.loads(r.stdout)
+    g.need('the host checked the successor store roots', checked.get('matches_state_lc') is True
+           and all(norm(checked.get(k)) == norm(new[k]) for k in ('head', 'header', 'committee', 'lc')))
+    g.need('successor store did not change while being checked', Path(path).read_bytes() == raw)
+    return store
+
+
+def cmd_export_proof(a, g):
+    inst = instance(g, a.instance)
+    m = load_manifest(a.manifest)
+    g.need('browser proof uses a deployable manifest', m.get('deployable') is True)
+    state = json.loads(Path(a.state).read_text())
+    art = json.loads(Path(a.artifact).read_text())
+    witness, new = prepare_update(g, inst, m, state, art)
+    program = export_program(g, m, a.manifest)
+    bundle = dict(schema='zk-bridge/browser-proof',
+                  instance=dict(identity(inst), update_cmr=m['update_leaf']['cmr'], claim_cmr=m['claim_leaf']['cmr']),
+                  state=state, new_state=new, program=program, witness=witness)
+    bundle['successor_store'] = successor_store(g, a.store, new)
+    out = Path(a.out)
+    bundle['compiled_program'] = compile_browser_proof(g, program, witness, m['update_leaf']['cmr'], out)
+    part = out.with_name(out.name + '.part')
+    try:
+        write_json(part, bundle)
+        part.replace(out)
+    finally:
+        part.unlink(missing_ok=True)
+    return dict(bundle=str(out), new_head=new['head'], exec_block=new['exec_block'],
+                successor_store_included=True,
+                note='Upload this proof bundle in the website update panel. The browser builds the transaction.')
 
 
 def proven_deposits(g, inst, state, deposits_path):
@@ -761,6 +861,7 @@ COMMANDS = {
     'asset': cmd_asset,
     'manifest': cmd_manifest,
     'check-artifact': cmd_check_artifact,
+    'export-proof': cmd_export_proof,
     'bootstrap': cmd_bootstrap,
     'verify-bootstrap': cmd_verify_bootstrap,
     'update': cmd_update,
@@ -801,6 +902,11 @@ def parser():
     p.add_argument('--artifact', required=True)
     p.add_argument('--state')
     p.add_argument('--no-pairing', action='store_true')
+
+    p = command('export-proof')
+    for f in ('--manifest', '--artifact', '--state', '--out'):
+        p.add_argument(f, required=True)
+    p.add_argument('--store', required=True, help='successor store to verify and include in full')
 
     p = command('bootstrap')
     p.add_argument('--manifest', required=True)
@@ -856,7 +962,7 @@ def main():
     try:
         report = dict(ok=True, **report, result=COMMANDS[a.cmd](a, g), gates=g.results)
         code = 0
-    except Gate as e:
+    except (Gate, OSError, ValueError, KeyError, TypeError, AssertionError, subprocess.TimeoutExpired) as e:
         report = dict(ok=False, **report, failed_gate=str(e), gates=g.results)
         code = 3
     print(json.dumps(report, indent=1, default=str))
