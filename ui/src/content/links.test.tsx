@@ -53,6 +53,7 @@ describe('linkAllowed', () => {
     `${DEFAULTS.ethExplorer}/address/${ESCROW}`, `${DEFAULTS.ethExplorer}/tx/0x${tx}`,
     `${DEFAULTS.liquidExplorer}/tx/${tx}`, `${DEFAULTS.liquidExplorer}/address/${DEPOSIT_ADDRESS}`,
     'https://sepolia.beaconcha.in',
+    'https://liquidtestnet.com/faucet',
   ])('allows %s', (href) => {
     expect(linkAllowed(href, RECORD)).toBe(true);
   });
@@ -74,6 +75,9 @@ describe('linkAllowed', () => {
     ['a malformed explorer address', `${DEFAULTS.ethExplorer}/address/0x1234`],
     ['another explorer path', `${DEFAULTS.ethExplorer}/token/${ESCROW}`],
     ['another host', 'https://evil.example/'],
+    ['another faucet path', 'https://liquidtestnet.com/other'],
+    ['a faucet address query', 'https://liquidtestnet.com/faucet?address=test'],
+    ['a look-alike faucet', 'https://liquidtestnet.com.evil.example/faucet'],
     ['a look-alike repository', `${REPO}-evil`],
     ['another branch', `${REPO}/blob/other/OPERATOR.md`],
     ['main, which the site is not published from', `${REPO}/blob/main/OPERATOR.md`],

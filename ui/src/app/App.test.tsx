@@ -3,10 +3,10 @@
 import { PUBLISHED } from '@bridge/core/config.js';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BridgeProvider } from '../bridge/context';
 import { BridgeController } from '../bridge/controller';
-import { ACCOUNT_CHECKSUMMED, ASSET_DISPLAY, DEPOSIT_ADDRESS, fixture, type Scenario } from '../dev/fixture';
+import { ACCOUNT_CHECKSUMMED, ASSET_DISPLAY, DEPOSIT_ADDRESS, fixture, seededJourneys, type Scenario } from '../dev/fixture';
 import { App } from './App';
 
 function renderPage(scenario: Scenario = 'connected', site?: string) {
@@ -19,6 +19,21 @@ function renderPage(scenario: Scenario = 'connected', site?: string) {
 }
 
 describe('the page', () => {
+  it('opens the claim builder with the deposit number from Activity', async () => {
+    const deposit = seededJourneys(Date.now()).find((journey) => journey.kind === 'deposit')!;
+    const f = fixture('connected', { journeys: [{ ...deposit, status: 'proven', index: '7' }] });
+    const c = new BridgeController(f.instance, f.env);
+    vi.spyOn(c, 'start').mockImplementation(() => {});
+    render(<BridgeProvider controller={c}><App /></BridgeProvider>);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: /Activity/ }));
+    await user.click(screen.getByRole('button', { name: 'Claim with Humid' }));
+    expect(document.getElementById('claim')).toHaveAttribute('open');
+    expect(screen.getByLabelText('Deposit number')).toHaveValue('7');
+    expect(screen.getByLabelText('Deposit number')).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Build claim' })).toHaveAccessibleDescription('To build, find and select a confirmed fee coin.');
+  });
+
   it('shows the three readings and the checks it made', async () => {
     renderPage();
     expect(await screen.findByText('2,664,000')).toBeInTheDocument();

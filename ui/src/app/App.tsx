@@ -86,7 +86,7 @@ export function App() {
               <p className="hint">Anyone can prove and claim deposits. <a href="#guide">Follow the steps</a>, then build and sign below.</p>
             </div>
             <UpdatePanel />
-            <ClaimPanel panelRef={claim.panelRef} fileRef={claim.fileRef} />
+            <ClaimPanel panelRef={claim.panelRef} fileRef={claim.fileRef} claimDraft={claim.claimDraft} />
           </section>
         </main>
         <aside className="sidebar" aria-label="Verification and settings">

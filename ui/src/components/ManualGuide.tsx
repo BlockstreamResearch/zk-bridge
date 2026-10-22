@@ -1,6 +1,6 @@
 import { PUBLISHED } from '@bridge/core/config.js';
 import { useBridge } from '../bridge/context';
-import { REPO } from '../content/links';
+import { LIQUID_FAUCET, REPO } from '../content/links';
 import { Button, CopyLine, ExtLink, Step } from './primitives';
 
 const SETUP = `git clone --branch ${PUBLISHED.branch} ${REPO}.git
@@ -21,13 +21,15 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
     <section className="tray" id="guide" aria-labelledby="guide-title">
       <div className="panel-head">
         <h2 className="tray-title" id="guide-title">Bridge guide</h2>
-        <p className="hint">Anyone can prove, claim and relay. Already proven? Skip to claim.</p>
+        <p className="hint">Anyone can prove, claim and relay. Already proven? <a href="#claim" onClick={() => onClaim()}>Skip to claim</a>.</p>
       </div>
       {!instance ? <p className="help">No bridge instance is available.</p> : (
         <ol className="steps-form">
           <Step n={1} title="Deposit">
-            <p className="help">Use an Ethereum wallet on Sepolia and Humid on Liquid testnet. Deposit to Humid's Receive → Unconfidential address.
-              Keep SepETH for gas and tL-BTC for Liquid fees. Wait for Ethereum finality.</p>
+            <p className="help">Use an Ethereum wallet on Sepolia and desktop Humid on Liquid testnet. Humid signing is unavailable on mobile.
+              Deposit to Humid's Receive → Unconfidential address. Keep SepETH for gas.</p>
+            <p className="help">Get <ExtLink href={LIQUID_FAUCET}>testnet tL-BTC</ExtLink> at Humid's Receive → Confidential address for fees.
+              Wait for Ethereum finality after depositing.</p>
             <p className="warn">Your deposit stays locked until proven and claimed. There is no refund.</p>
           </Step>
           <Step n={2} title="Prepare the proof">
@@ -69,6 +71,7 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
           <Step n={4} title="Claim on Liquid">
             <p className="help">Once proven, enter the deposit number in Claim, prepare its fee, and review and sign in Humid.
               The page builds the claim; no new proof is needed. It pays the original Liquid recipient. Wait for confirmation.</p>
+            <p className="help">Connect a Sepolia wallet or set a custom RPC in Settings. Claim preparation reads deposit logs since deployment.</p>
             <p className="warn">Update and claim each spend their entire selected fee coin. Check the fee before signing.
               If a broadcast is uncertain, check its transaction before retrying.</p>
             <Button onClick={onClaim}>Open claim</Button>

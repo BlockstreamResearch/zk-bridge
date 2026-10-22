@@ -34,16 +34,26 @@ function downloadStore(text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function BuildFields({ kind, busy, building, locked, inputRef }: {
+interface ClaimDraft {
+  deposit: string;
+  setDeposit: (value: string) => void;
+}
+
+function BuildFields({ kind, busy, building, locked, inputRef, claimDraft }: {
   kind: 'liquidUpdate' | 'liquidClaim'; busy: boolean; building: boolean; locked: boolean; inputRef?: RefObject<HTMLInputElement | null>;
+  claimDraft?: ClaimDraft;
 }) {
   const c = useController();
   const id = useId();
   const [bundle, setBundle] = useState<File | null>(null);
-  const [deposit, setDeposit] = useState('');
+  const [localDeposit, setLocalDeposit] = useState('');
+  const deposit = claimDraft?.deposit ?? localDeposit;
+  const setDeposit = claimDraft?.setDeposit ?? setLocalDeposit;
   const [coin, setCoin] = useState<FeeCoin | null>(null);
   const update = kind === 'liquidUpdate';
   const validDeposit = /^\d+$/.test(deposit) && Number.isSafeInteger(Number(deposit));
+  const missing = [update ? !bundle && 'load a proof bundle' : !validDeposit && 'enter a deposit number',
+    !coin && 'find and select a confirmed fee coin'].filter(Boolean).join(' and ');
   return <>
     <div className="field">
       <label htmlFor={`${id}-input`}>{update ? 'Proof bundle · proof.browser.json' : 'Deposit number'}</label>
@@ -57,24 +67,27 @@ function BuildFields({ kind, busy, building, locked, inputRef }: {
     </div>
     <FeePicker kind={update ? 'update' : 'claim'} disabled={busy || locked} onCoin={(value) => { c.resetSend(kind); setCoin(value); }} />
     <div className="actions">
-      <Button disabled={busy || locked || !coin || (update ? !bundle : !validDeposit)} onClick={() => {
+      <Button aria-describedby={`${id}-build-help`} disabled={busy || locked || !!missing} onClick={() => {
         if (coin) void c.buildFromBrowser(kind, { feeTxid: coin.txid, feeVout: coin.vout,
           ...(update ? { bundle } : { depositIndex: Number(deposit) }) });
       }}>Build {update ? 'update' : 'claim'}</Button>
       {building && <Button onClick={() => c.resetSend(kind)}>Cancel build</Button>}
     </div>
+    <p className="help" id={`${id}-build-help`}>{!locked && !busy && missing ? `To build, ${missing}.` : ''}</p>
   </>;
 }
 
-function SendPanel<P extends { txid: string }>({ kind, title, intro, send, facts, approval, done, panelRef, fileRef, children }: {
+function SendPanel<P extends { txid: string }>({ kind, title, intro, send, facts, approval, done, panelRef, fileRef, claimDraft, children }: {
   kind: 'liquidUpdate' | 'liquidClaim'; title: string; intro: ReactNode; send: LiquidSend<P>;
   facts: (plan: P) => [string, string][]; approval: (plan: P) => string;
   done: (plan: P, sent: LiquidSent) => ReactNode;
   panelRef?: RefObject<HTMLDetailsElement | null>; fileRef?: RefObject<HTMLInputElement | null>; children?: ReactNode;
+  claimDraft?: ClaimDraft;
 }) {
   const s = useBridge();
   const c = useController();
   const id = useId();
+  const [formVersion, setFormVersion] = useState(0);
   const { busy, note, plan, sent, fileError, error } = send;
   const what = kind === 'liquidUpdate' ? 'update' : 'claim';
   const missing = kind === 'liquidUpdate' && plan && !(plan as unknown as UpdatePlan).store;
@@ -86,12 +99,13 @@ function SendPanel<P extends { txid: string }>({ kind, title, intro, send, facts
     <summary>{title}</summary>
     <div className="disclosure-body">
       <p className="help">{intro}</p>
-      <BuildFields kind={kind} busy={busy} building={!!send.building} locked={!s.instance || !!sent} inputRef={fileRef} />
+      <BuildFields key={formVersion} kind={kind} busy={busy} building={!!send.building} locked={!s.instance || !!sent}
+        inputRef={fileRef} claimDraft={claimDraft} />
       <details className="aside-form">
         <summary>Import a transaction built elsewhere</summary>
         <div className="field">
           <label htmlFor={`${id}-file`}>Unsigned {what} · {what}.hex</label>
-          <input id={`${id}-file`} type="file" accept=".hex,.txt,text/plain" disabled={busy || !s.instance}
+          <input key={formVersion} id={`${id}-file`} type="file" accept=".hex,.txt,text/plain" disabled={busy || !s.instance || !!sent}
             aria-describedby={`${id}-error`} aria-invalid={fileError ? true : undefined}
             onChange={(event) => void c.loadFile(kind, event.target.files?.[0] ?? null)} />
           <p className="help">Checked against this deployment and the current Liquid state before signing.</p>
@@ -104,7 +118,11 @@ function SendPanel<P extends { txid: string }>({ kind, title, intro, send, facts
         <Button variant="primary" disabled={busy || !plan || confirmed || (!sent && !!missing)} onClick={() => void c.sendFile(kind)}>
           {busy ? 'Working…' : sent && !confirmed ? 'Check on Liquid again' : 'Sign and send with Humid'}
         </Button>
-        {confirmed && <Button onClick={() => c.resetSend(kind)}>Start another {what}</Button>}
+        {confirmed && <Button onClick={() => {
+          c.resetSend(kind);
+          claimDraft?.setDeposit('');
+          setFormVersion((version) => version + 1);
+        }}>Start another {what}</Button>}
         <Hint live>{hint}</Hint>
       </div>
       {plan && !sent && <p className="warn approval">{approval(plan)}</p>}
@@ -124,9 +142,12 @@ function StoreField({ plan }: { plan: UpdatePlan }) {
   return <div className="field">
     {plan.store ? <p className="help">{plan.store.where === 'site' ? 'Successor store: published on this site.' : 'Successor store: loaded locally; not published by this page.'}</p>
       : null}
-    {plan.store?.where !== 'site' && <><label htmlFor={`${id}-store`}>Successor store · proof.store.json</label>
-        <input id={`${id}-store`} type="file" accept=".json,application/json" disabled={busy || !!sent}
-          onChange={(event) => void c.loadStore(event.target.files?.[0] ?? null)} /></>}
+    {plan.store?.where !== 'site' && <details className="aside-form" open={!plan.store}>
+      <summary>{plan.store ? 'Replace successor store' : 'Load successor store'}</summary>
+      <label htmlFor={`${id}-store`}>Successor store · proof.store.json</label>
+      <input id={`${id}-store`} type="file" accept=".json,application/json" disabled={busy || !!sent}
+        onChange={(event) => void c.loadStore(event.target.files?.[0] ?? null)} />
+    </details>}
     {storeText && <Button onClick={() => downloadStore(storeText)}>Download successor store</Button>}
     <p className="help">Keep and share this file so anyone can make the next proof. Without it, they must recover the store from retained beacon data;
       recovery may fail if that data is unavailable. Loading it here does not publish it. <a href="#guide">Sharing options</a>.</p>
@@ -147,11 +168,13 @@ export function UpdatePanel() {
   </SendPanel>;
 }
 
-export function ClaimPanel({ panelRef, fileRef }: { panelRef: RefObject<HTMLDetailsElement | null>; fileRef: RefObject<HTMLInputElement | null> }) {
+export function ClaimPanel({ panelRef, fileRef, claimDraft }: {
+  panelRef: RefObject<HTMLDetailsElement | null>; fileRef: RefObject<HTMLInputElement | null>; claimDraft?: ClaimDraft;
+}) {
   const s = useBridge();
   const to = (plan: ClaimPlan) => plan.claim.mint.address ?? `script ${bytesToHex(plan.claim.mint.script)}`;
-  return <SendPanel<ClaimPlan> kind="liquidClaim" title="Claim a proven deposit" send={s.liquidClaim} panelRef={panelRef} fileRef={fileRef}
-    intro="Choose a proven deposit. This page builds its claim; Humid pays the fee. The asset goes to the address set by the deposit, whoever claims it."
+  return <SendPanel<ClaimPlan> kind="liquidClaim" title="Claim a proven deposit" send={s.liquidClaim} panelRef={panelRef} fileRef={fileRef} claimDraft={claimDraft}
+    intro="Choose a proven deposit. This page reads Sepolia through your connected wallet or custom RPC and builds the claim; Humid pays the fee. The asset goes to the deposit's original recipient."
     facts={(plan) => [
       ['Transaction', plan.txid], ['Recipient', to(plan)],
       ['Amount', `${formatUnits(plan.claim.mint.units, 8)} bridge asset · ${plan.claim.mint.units} units`],
@@ -163,14 +186,21 @@ export function ClaimPanel({ panelRef, fileRef }: { panelRef: RefObject<HTMLDeta
 
 /** Open the claim builder and focus the deposit number. */
 export function useClaimPanel() {
+  const c = useController();
+  const { liquidClaim } = useBridge();
   const panelRef = useRef<HTMLDetailsElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const open = () => {
+  const [deposit, setDeposit] = useState('');
+  const open = (index?: string) => {
+    if (typeof index === 'string' && !liquidClaim.busy && !liquidClaim.sent) {
+      c.resetSend('liquidClaim');
+      setDeposit(index);
+    }
     if (panelRef.current) {
       panelRef.current.open = true;
       panelRef.current.scrollIntoView?.({ block: 'start' });
     }
     fileRef.current?.focus({ preventScroll: true });
   };
-  return { panelRef, fileRef, open };
+  return { panelRef, fileRef, open, claimDraft: { deposit, setDeposit } };
 }

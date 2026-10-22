@@ -1,5 +1,5 @@
 import type { FeeCoin as DiscoveredCoin } from '@bridge/core/lib/fee.js';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { BridgeProvider } from '../bridge/context';
@@ -38,6 +38,31 @@ async function openPreparation(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('fee picker', () => {
+  it('distinguishes the search minimum from the preparation amount and explains wallet visibility', async () => {
+    const { user } = setup();
+    expect(screen.getByText(/Find lists coins of at least this amount/)).toHaveTextContent('Prepare sends exactly this amount');
+    expect(screen.getByText(/Humid.s balance may omit this unblinded coin/)).toBeInTheDocument();
+    await openPreparation(user);
+    expect(screen.getByRole('link', { name: /testnet tL-BTC/ })).toHaveAttribute('href', 'https://liquidtestnet.com/faucet');
+    expect(screen.getByText(/Use Humid on desktop/)).toBeInTheDocument();
+  });
+
+  it('releases the busy lock after a lookup is superseded', async () => {
+    const { user, find } = setup();
+    let finish!: (coins: DiscoveredCoin[]) => void;
+    find.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const button = screen.getByRole('button', { name: 'Find fee coins' });
+    await user.click(button);
+    expect(button).toBeDisabled();
+    // Simulate a reset during the request, even though normal typing is disabled while busy.
+    fireEvent.change(screen.getByLabelText('Fee coin amount (tL-BTC sats)'), { target: { value: '3000' } });
+    await act(async () => finish([first]));
+    expect(button).toBeEnabled();
+    expect(screen.queryByLabelText('Confirmed fee coin')).not.toBeInTheDocument();
+    await user.click(button);
+    expect(find).toHaveBeenLastCalledWith(DEPOSIT_ADDRESS, 3000n);
+  });
+
   it('discovers confirmed coins without wallet approval and selects only the chosen outpoint', async () => {
     const { user, find, prepare, onCoin } = setup();
     await user.click(screen.getByRole('button', { name: 'Find fee coins' }));
@@ -173,7 +198,7 @@ describe('fee picker', () => {
     const { user, find, prepare } = setup();
     const button = await openPreparation(user);
     await user.click(screen.getByRole('checkbox'));
-    const input = screen.getByLabelText('Fee budget (tL-BTC sats)');
+    const input = screen.getByLabelText('Fee coin amount (tL-BTC sats)');
     await user.clear(input);
     if (amount) await user.type(input, amount);
     expect(button).toBeDisabled();

@@ -2,6 +2,7 @@ import { DEFAULTS } from '@bridge/core/config.js';
 import { useId, useRef, useState } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { message, short } from '../bridge/format';
+import { LIQUID_FAUCET } from '../content/links';
 import { Button, ExtLink } from './primitives';
 
 export interface FeeCoin { txid: string; vout: number }
@@ -66,7 +67,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
       }
     } finally {
       working.current = false;
-      if (version === run.current) setBusy(false);
+      setBusy(false);
     }
   }
 
@@ -126,11 +127,13 @@ export function FeePicker({ kind, disabled, onCoin }: {
         onChange={(e) => { reset(); setAddress(e.target.value); setOwned(false); }} />
     </div>
     <div className="field">
-      <label htmlFor={`${id}-amount`}>Fee budget (tL-BTC sats)</label>
+      <label htmlFor={`${id}-amount`}>Fee coin amount (tL-BTC sats)</label>
       <input id={`${id}-amount`} inputMode="numeric" value={amount} onChange={(e) => { reset(); setAmount(e.target.value); }} />
-      <p className="help">The {kind} spends the whole coin. Maximum 50,000 sats; no change.</p>
+      <p className="help">Find lists coins of at least this amount. Prepare sends exactly this amount.
+        The {kind} spends the whole selected coin, up to 50,000 sats; no change.</p>
     </div>
     <div className="actions"><Button disabled={!valid} onClick={() => void find()}>Find fee coins</Button></div>
+    <p className="help">Humid's balance may omit this unblinded coin. Find fee coins checks the address directly.</p>
     {coins.length > 0 && <div className="field">
       <label htmlFor={`${id}-coin`}>Confirmed fee coin</label>
       <select id={`${id}-coin`} value={choice} onChange={(e) => {
@@ -145,6 +148,8 @@ export function FeePicker({ kind, disabled, onCoin }: {
     <details className="aside-form">
       <summary>Prepare a fee coin with Humid</summary>
       <p className="help">Send {amount || '—'} sats to the address above. This separate transaction costs 500 sats and must confirm first.</p>
+      <p className="help">Use Humid on desktop to sign. Fund its Receive → Confidential address with
+        {' '}<ExtLink href={LIQUID_FAUCET}>testnet tL-BTC</ExtLink> first.</p>
       <label className="check"><input type="checkbox" checked={owned} onChange={(e) => setOwned(e.target.checked)} /> I control this address in Humid.</label>
       <div className="actions"><Button disabled={!valid || !owned || held} onClick={() => void prepare()}>Prepare fee coin</Button></div>
       {held && <p className="help">Check Humid activity before preparing another coin. Use Find fee coins after confirmation.</p>}

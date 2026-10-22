@@ -98,7 +98,7 @@ function UnresolvedNote({ j }: { j: DepositJourney }) {
   );
 }
 
-function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) {
+function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: (index?: string) => void }) {
   const c = useController();
   const order = ['submitted', 'mined', 'finalized', 'claiming', 'claimed'];
   const at = j.status === 'unresolved' || j.status === 'proven' ? 3 : order.indexOf(j.status);
@@ -130,7 +130,7 @@ function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) 
       </>}
       actions={<>
         {j.status === 'finalized' && <a className="btn btn-primary" href="#guide">Prepare proof</a>}
-        {j.status === 'proven' && <Button variant="primary" onClick={onClaim}>Claim with Humid</Button>}
+        {j.status === 'proven' && <Button variant="primary" onClick={() => onClaim(j.index ?? undefined)}>Claim with Humid</Button>}
         <Button variant="ghost" onClick={() => c.removeJourney(j.id)}>Remove from list</Button>
       </>} />
   );
@@ -177,7 +177,7 @@ function RedeemRow({ j }: { j: RedeemJourney }) {
 }
 
 /** Journeys of `kind` (or all), newest first, at most `limit`. */
-export function JourneyList({ kind, limit, onClaim }: { kind?: Journey['kind']; limit?: number; onClaim: () => void }) {
+export function JourneyList({ kind, limit, onClaim }: { kind?: Journey['kind']; limit?: number; onClaim: (index?: string) => void }) {
   const { journeys } = useBridge();
   const list = journeys.filter((j) => !kind || j.kind === kind).slice(0, limit);
   if (!list.length) return null;
@@ -188,7 +188,7 @@ export function JourneyList({ kind, limit, onClaim }: { kind?: Journey['kind']; 
   );
 }
 
-export function ActivityPanel({ onClaim }: { onClaim: () => void }) {
+export function ActivityPanel({ onClaim }: { onClaim: (index?: string) => void }) {
   const { journeys } = useBridge();
   return (
     <>

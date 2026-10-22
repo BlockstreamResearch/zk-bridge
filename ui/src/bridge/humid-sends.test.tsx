@@ -227,6 +227,53 @@ describe('a claim sent with Humid', () => {
   });
 });
 
+describe('starting another browser transaction', () => {
+  it.each(['liquidUpdate', 'liquidClaim'] as const)('clears the previous fee and inputs for %s', async (kind) => {
+    const { c } = await loaded(kind, broadcasts('confirmed'));
+    vi.spyOn(c, 'start').mockImplementation(() => {});
+    c.setRedeemForm({ humidAddress: DEPOSIT_ADDRESS });
+    vi.spyOn(c, 'findFeeCoins').mockResolvedValue([{
+      txid: FEE_TX, vout: 1, sats: 12000n, address: DEPOSIT_ADDRESS, script: new Uint8Array(), txHex: '',
+    }]);
+    render(<BridgeProvider controller={c}><App /></BridgeProvider>);
+    const user = userEvent.setup();
+    const what = kind === 'liquidUpdate' ? 'update' : 'claim';
+    await user.click(screen.getByText(what === 'update' ? 'Send a proof update' : 'Claim a proven deposit'));
+    const tray = within(document.getElementById(what)!);
+    const build = tray.getByRole('button', { name: `Build ${what}` });
+    expect(build).toHaveAccessibleDescription(what === 'update'
+      ? 'To build, load a proof bundle and find and select a confirmed fee coin.'
+      : 'To build, enter a deposit number and find and select a confirmed fee coin.');
+    if (what === 'update') {
+      await user.upload(tray.getByLabelText(/Proof bundle/), new File(['{}'], 'proof.browser.json', { type: 'application/json' }));
+    } else {
+      await user.type(tray.getByLabelText('Deposit number'), '7');
+    }
+    await user.click(tray.getByRole('button', { name: 'Find fee coins' }));
+    await user.selectOptions(await tray.findByLabelText('Confirmed fee coin'), `${FEE_TX}:1`);
+    expect(build).toBeEnabled();
+
+    await user.click(tray.getByText('Import a transaction built elsewhere'));
+    const file = new File(['abcd'], `${what}.hex`, { type: 'text/plain' });
+    Object.defineProperty(file, 'text', { value: async () => 'abcd' });
+    await user.upload(tray.getByLabelText(`Unsigned ${what} · ${what}.hex`), file);
+    const send = tray.getByRole('button', { name: 'Sign and send with Humid' });
+    await waitFor(() => expect(send).toBeEnabled());
+    await user.click(send);
+    await user.click(await tray.findByRole('button', { name: `Start another ${what}` }));
+
+    expect(c.getSnapshot()[kind].plan).toBeNull();
+    expect(tray.getByRole('button', { name: `Build ${what}` })).toBeDisabled();
+    expect(tray.queryByLabelText('Confirmed fee coin')).not.toBeInTheDocument();
+    expect((tray.getByLabelText(`Unsigned ${what} · ${what}.hex`) as HTMLInputElement).files).toHaveLength(0);
+    if (what === 'update') {
+      expect((tray.getByLabelText(/Proof bundle/) as HTMLInputElement).files).toHaveLength(0);
+    } else {
+      expect(tray.getByLabelText('Deposit number')).toHaveValue('');
+    }
+  });
+});
+
 describe('an update sent with Humid', () => {
   it('is not counted as sent from Humid\'s answer alone', async () => {
     const { c, s, asked } = await loaded('liquidUpdate', async () => ({ txid: TXID }));
@@ -283,6 +330,7 @@ describe('the update panel', () => {
     const ctx = await loaded('liquidUpdate', broadcasts('confirmed'), update);
     const user = userEvent.setup();
     render(<BridgeProvider controller={ctx.c}><App /></BridgeProvider>);
+    await user.click(screen.getByText('Send a proof update'));
     const tray = within(document.getElementById('update')!);
     const send = () => tray.getByRole('button', { name: 'Sign and send with Humid', hidden: true });
     const fact = () => tray.getByText(/^Successor store:/);
@@ -334,6 +382,16 @@ describe('the update panel', () => {
     return { ...ctx, store };
   }
 
+  it('keeps a loaded store available for download and puts replacement behind a disclosure', async () => {
+    const { user, tray, store, send } = await withOwnStore();
+    expect(store).not.toBeVisible();
+    expect(tray.getByRole('button', { name: 'Download successor store' })).toBeVisible();
+    expect(send()).toBeEnabled();
+    await user.click(tray.getByText('Replace successor store'));
+    expect(store).toBeVisible();
+    expect(send()).toBeEnabled();
+  });
+
   it.each([
     ['is not a store file', 'not json', 'Not this update\'s store: other.json is not a store file.'],
     [
@@ -343,6 +401,7 @@ describe('the update panel', () => {
     ],
   ])('drops the loaded store when the next file chosen %s', async (_case, text, error) => {
     const { user, tray, send, store, asked, updateState } = await withOwnStore();
+    await user.click(tray.getByText('Replace successor store'));
     await user.upload(store, json('other.json', text));
     expect(await tray.findByText(error)).toBeInTheDocument();
     expect(updateState().plan?.store).toBeNull();
@@ -360,6 +419,7 @@ describe('the update panel', () => {
 
   it('drops the loaded store when the file field is cleared', async () => {
     const { c, user, tray, send, fact, store, asked, updateState } = await withOwnStore();
+    await user.click(tray.getByText('Replace successor store'));
     await user.upload(store, []);
     await waitFor(() => expect(send()).toBeDisabled());
     expect(updateState().plan?.store).toBeNull();

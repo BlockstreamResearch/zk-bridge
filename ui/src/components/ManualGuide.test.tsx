@@ -41,6 +41,9 @@ describe('manual bridge guide', () => {
     expect(guide).toHaveTextContent('Uploading it here does not publish it');
     expect(guide).toHaveTextContent('recovery may be impossible');
     expect(guide).toHaveTextContent('Burning is irreversible');
+    expect(guide).toHaveTextContent('Humid signing is unavailable on mobile');
+    expect(guide).toHaveTextContent('Claim preparation reads deposit logs since deployment');
+    expect(within(guide).getByRole('link', { name: /testnet tL-BTC/ })).toHaveAttribute('href', 'https://liquidtestnet.com/faucet');
   });
 
   it('opens the update, claim and redeem controls through their owning callbacks', () => {
@@ -58,6 +61,14 @@ describe('manual bridge guide', () => {
     expect(screen.queryByRole('button', { name: 'Open update' })).not.toBeInTheDocument();
   });
 
+  it('opens the claim panel from the skip link', () => {
+    const { onClaim } = renderGuide();
+    const link = screen.getByRole('link', { name: 'Skip to claim' });
+    expect(link).toHaveAttribute('href', '#claim');
+    fireEvent.click(link);
+    expect(onClaim).toHaveBeenCalledOnce();
+  });
+
   it.each(['finalized', 'proven'] as const)('routes a %s deposit to the correct next step without time predictions', (status) => {
     const deposit = seededJourneys(Date.now()).find((j): j is DepositJourney => j.kind === 'deposit')!;
     const onClaim = vi.fn();
@@ -73,7 +84,7 @@ describe('manual bridge guide', () => {
     } else {
       expect(screen.queryByRole('link', { name: 'Prepare proof' })).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Claim with Humid' }));
-      expect(onClaim).toHaveBeenCalledOnce();
+      expect(onClaim).toHaveBeenCalledExactlyOnceWith(deposit.index);
       expect(container).toHaveTextContent('no new proof is needed');
     }
     expect(container.textContent).not.toMatch(/usually|operator|minutes|hours|claim-unsigned/);

@@ -3,6 +3,7 @@ import { DEFAULTS, PUBLISHED } from '@bridge/core/config.js';
 /** The bridge's repository, and its published site (config.js PUBLISHED): the one copy whose record counts. */
 export const REPO = PUBLISHED.repo;
 export const SITE = PUBLISHED.site;
+export const LIQUID_FAUCET = 'https://liquidtestnet.com/faucet';
 export const OPERATOR = `${REPO}/blob/${PUBLISHED.branch}/OPERATOR.md`;
 export const TAKEOVER = `${REPO}/blob/${PUBLISHED.branch}/README.md#quick-guide-to-completing-a-manual-end-to-end-test`;
 export const JUST_STEPS = `${OPERATOR}#the-same-steps-with-just`;
@@ -26,13 +27,15 @@ const EXTERNAL = [
   new RegExp(`^${literal(DEFAULTS.liquidExplorer)}/(?:tx/[0-9a-f]{64}|address/(?:tex|tlq)1[02-9ac-hj-np-z]+)$`),
   // The Sepolia beacon explorer, for checking finality.
   /^https:\/\/sepolia\.beaconcha\.in\/?$/,
+  // The Liquid documentation's testnet faucet, without address parameters.
+  new RegExp(`^${literal(LIQUID_FAUCET)}$`),
 ];
 
 /**
  * Whether the page may link to `href` while it serves the instance whose record is `record` (config.js parseInstance
  * `instances/<name>/`, or null for none): an in-page anchor; a file of that record, and of no other; the repository
  * or a file on its published branch; the published site's front page; a Sepolia or Liquid testnet explorer page of an address or transaction; or the
- * Sepolia beacon explorer. Nothing else: no other instance's record, no path out of the record, no data API, no other
+ * Sepolia beacon explorer or Liquid testnet faucet. Nothing else: no other instance's record, no path out of the record, no data API, no other
  * host, scheme, port, credentials or query. An absolute link must be in canonical form, so `..` cannot hide in it.
  */
 export function linkAllowed(href: string, record: string | null): boolean {
