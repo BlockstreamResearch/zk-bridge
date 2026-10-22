@@ -14,14 +14,16 @@ The Liquid side of the bridge has two leaves under one state UTXO, `P2TR(NUMS, {
 
 The instance pins one guest ELF and its SP1 program vkey (`instance.json` `GUEST_ELF_SHA256`, `PROGRAM_VKEY`), and the vkey is folded into its update leaf. The guest is built in SP1's pinned Docker image (`just prover`, then `just check-elf`; or the commands in [OPERATOR.md](../../OPERATOR.md#4-prove-and-update)), and `sg16-bridge-host vkey --elf` prints both values for the instance file. `--workspace-directory` mounts the whole repository, so that `vendor/sp1-helios`, a path dependency outside the guest's workspace, is inside the container.
 
-Once the instance is deployed, `bridge-guest/program/`, `bridge-guest/core/`, the workspace `Cargo.toml` and `Cargo.lock`, and their place in the repository do not change: any change gives another ELF and vkey, which its update leaf does not accept.
+Once the instance is deployed, `bridge-guest/program/`, `bridge-guest/core/`, `bridge-guest/patches/`, the workspace `Cargo.toml` and `Cargo.lock`, and their place in the repository do not change: any change gives another ELF and vkey, which its update leaf does not accept.
+
+The guest uses helios 0.12.0's consensus core from `bridge-guest/patches/`, with two changes that keep every check and cut its cycles ([`patches/README.md`](bridge-guest/patches/README.md)). It reads its inputs in the encoding of `sg16_bridge_core::guest_input`: fork-versioned values carry explicit tags, and the store and Gloas update committees use SSZ bytes. This avoids repeated decoding and hex conversion on the current Sepolia path. The host converts saved `inputs.cbor` files when it runs the guest.
 
 ## Tests
 
 From the repository root, after `python3 tools/bootstrap-deps.py`:
 
 ```sh
-cargo test --release --locked -p sg16-bridge-core --manifest-path tools/sg16/bridge-guest/Cargo.toml
+cargo test --release --locked -p sg16-bridge-core --features guest-input --manifest-path tools/sg16/bridge-guest/Cargo.toml
 cargo build --release --locked -p sg16-bridge-core --features cli --manifest-path tools/sg16/bridge-guest/Cargo.toml
 cargo test --release --locked -p sg16-bridge-host --manifest-path tools/sg16/bridge-guest/Cargo.toml
 cargo test --release --locked --manifest-path tools/sg16-harness/Cargo.toml

@@ -15,6 +15,7 @@ use self::{
 
 pub mod bls;
 pub mod bytes;
+mod committee_root;
 mod serde_utils;
 
 pub type LogsBloom = ByteVector<typenum::U256>;
@@ -393,10 +394,42 @@ impl LightClientHeader {
     }
 }
 
-#[derive(Debug, Clone, Default, Encode, TreeHash, Serialize, Deserialize, Decode, PartialEq)]
+// sg16 bridge patch: in the zkVM, TreeHash is the direct `sync_committee_root`; elsewhere (the prover host) it
+// stays the stock derive, so the host's recomputation of new_lc checks the guest's committee roots independently.
+#[derive(Debug, Clone, Default, Encode, Serialize, Deserialize, Decode, PartialEq)]
+#[cfg_attr(not(target_os = "zkvm"), derive(TreeHash))]
 pub struct SyncCommittee<S: ConsensusSpec> {
     pub pubkeys: FixedVector<PublicKey, S::SyncCommitteeSize>,
     pub aggregate_pubkey: PublicKey,
+}
+
+/// sg16 bridge patch: the root `#[derive(TreeHash)]` gives, computed directly over 64-byte blocks
+/// (`committee_root`). tools/sg16/bridge-guest/host/tests/committee_root.rs compares it with the derive.
+pub fn sync_committee_root<S: ConsensusSpec>(committee: &SyncCommittee<S>) -> B256 {
+    committee_root::root(
+        committee.pubkeys.iter().map(PublicKey::as_bytes),
+        committee.aggregate_pubkey.as_bytes(),
+    )
+    .into()
+}
+
+#[cfg(target_os = "zkvm")]
+impl<S: ConsensusSpec> tree_hash::TreeHash for SyncCommittee<S> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::Container
+    }
+
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> tree_hash::Hash256 {
+        sync_committee_root(self)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, Encode, Decode, TreeHash)]

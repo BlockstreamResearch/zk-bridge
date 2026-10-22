@@ -10,7 +10,7 @@ name = "sg16-bridge-host"
 path = "src/main.rs"
 
 [dependencies]
-sg16-bridge-core = { workspace = true }
+sg16-bridge-core = { workspace = true, features = ["guest-input"] }
 sp1-sdk = { workspace = true }
 sp1-recursion-gnark-ffi = { version = "=6.8.1", features = ["native"] }
 sp1-helios-primitives = { workspace = true }
@@ -25,3 +25,11 @@ anyhow = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
+
+# tests/: the patched helios (../patches) against the stock tree_hash derive and the BLS12-381 decoder.
+[dev-dependencies]
+bls12_381 = { version = "0.8", features = ["experimental"] }
+ethereum_ssz = "0.9"
+sha2_09 = { package = "sha2", version = "0.9" }
+ssz_types = "0.11"
+tree_hash_derive = "0.10"

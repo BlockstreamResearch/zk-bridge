@@ -14,12 +14,19 @@
 //!  - fixed 272-byte public values (sg16-bridge-core) with prev_lc / new_lc, the Liquid state's light-client
 //!    commitment, computed here from the anchored and the successor store.
 //!
+//! Three changes only cut cycles. Helios 0.12.0's consensus core is the copy in ../patches (patches/README.md):
+//! a signature subgroup check that passed every point is removed (the decoder's check remains), and the
+//! sync-committee root is computed directly. The input is `ProofInputs` in sg16_bridge_core::guest_input's
+//! encoding: the host's inputs.cbor with each fork-versioned value tagged by its variant and the sync committees as
+//! SSZ bytes, which the guest decodes once.
+//!
 //! Prover-controlled inputs and why they are safe:
 //!   store.finalized_header, store.current_sync_committee   anchored: they define prev_lc, which the covenant
 //!                                                           requires to equal the spent state's lc
 //!   store.next_sync_committee                               discarded (set to None), as in the stock guest
-//!   store.optimistic_header, participation counters,        not read by finality verification
-//!     best_valid_update
+//!   store.optimistic_header, participation counters         not read by finality verification
+//!   store.best_valid_update                                 not in the guest's stdin: always None here; helios
+//!                                                           only replaces it, and it reaches no output
 //!   genesis_root, forks                                     committed in `config`
 //!   expected_current_slot                                   only bounds signature slots from above; every update
 //!                                                           must still carry valid sync-committee signatures
@@ -50,7 +57,7 @@ pub fn main() {
         forks,
         contract_storage,
         execution_header,
-    } = serde_cbor::from_slice(&encoded_inputs).unwrap();
+    } = sg16_bridge_core::guest_input::decode(&encoded_inputs).unwrap();
 
     // Network: the signing domain and the fork-dependent branch layouts come from these two inputs.
     let config = config_hash(

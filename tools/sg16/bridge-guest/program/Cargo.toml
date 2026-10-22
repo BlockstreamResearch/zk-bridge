@@ -13,7 +13,7 @@ path = "src/main.rs"
 sp1-zkvm = { workspace = true }
 helios-consensus-core = { workspace = true }
 sp1-helios-primitives = { workspace = true }
-sg16-bridge-core = { workspace = true }
+sg16-bridge-core = { workspace = true, features = ["guest-input"] }
 serde_cbor = { workspace = true }
 alloy-primitives = { workspace = true, features = ["sha3-keccak"] }
 tree_hash = { workspace = true }

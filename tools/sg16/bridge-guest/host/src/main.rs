@@ -20,7 +20,8 @@
 //!   sg16-bridge-host run --elf <guest elf> <inputs.cbor> <out.json> [--prove] [--pick <contract>:<slot>]
 //!                        [--allow-non-sepolia]
 //!       Execute the guest (and with --prove, make and SDK-verify a Groth16 proof), decode its public values and
-//!       check each field against the host's own recomputation from the inputs.  --pick keeps one contract and
+//!       check each field against the host's own recomputation from the inputs.  The guest reads the inputs in the
+//!       encoding of sg16_bridge_core::guest_input; inputs.cbor stays as it is.  --pick keeps one contract and
 //!       one slot of a multi-slot input (its account proof stays valid).  Inputs for another network are refused
 //!       unless --allow-non-sepolia, and the artifact then says "not-sepolia".  Also writes the successor store
 //!       file beside <out.json> as <out>.store.json: the store the next proof starts from.
@@ -74,7 +75,8 @@ use helios_ethereum::config::{networks::Network, Config};
 use helios_ethereum::consensus::Inner;
 use helios_ethereum::rpc::{http_rpc::HttpRpc, ConsensusRpc};
 use sg16_bridge_core::{
-    config_hash, lc, UpdateOutputs, SEPOLIA_CHAIN_ID, SEPOLIA_GENESIS_VALIDATORS_ROOT,
+    config_hash, guest_input::guest_stdin, lc, UpdateOutputs, SEPOLIA_CHAIN_ID,
+    SEPOLIA_GENESIS_VALIDATORS_ROOT,
 };
 use sp1_helios_primitives::types::ProofInputs;
 use sp1_helios_script::execution::{fill_execution_header, ExecutionRpc};
@@ -613,7 +615,7 @@ async fn run_cmd(args: &[String]) -> Result<()> {
     sp1_sdk::utils::setup_logger();
     let client = ProverClient::builder().cpu().build().await;
     let mut stdin = SP1Stdin::new();
-    stdin.write_slice(&cbor);
+    stdin.write_slice(&guest_stdin(&cbor).context("encode the guest's stdin")?);
     let t0 = std::time::Instant::now();
     let (public_values, report) = client
         .execute(elf.clone(), stdin.clone())
@@ -1208,5 +1210,288 @@ mod tests {
         assert_eq!(std::fs::read(&input).unwrap(), TRANSITION);
         assert_eq!(std::fs::read(&out).unwrap(), minimized);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // The guest's light-client steps (successor_store), with the patched helios (../patches), on tampered copies of
+    // the transition inputs: the update of period 1389 (signed by the anchored committee, bringing committee 1390)
+    // and the finality update (signed by committee 1390). The guest runs the same steps; the ELF-level matrix is
+    // target/guest-optimization tooling.
+
+    use helios_consensus_core::types::{
+        bls::{PublicKey, Signature},
+        FinalityUpdate, FinalityUpdateGloas, GenericUpdate, SyncAggregate, UpdateGloas,
+    };
+    use ssz::{Decode, Encode};
+
+    type Spec = MainnetConsensusSpec;
+
+    fn one_update() -> ProofInputs {
+        let mut inputs = transition();
+        inputs.updates.truncate(1);
+        inputs
+    }
+
+    fn refused(case: &str, tamper: impl FnOnce(&mut ProofInputs)) {
+        let mut inputs = one_update();
+        tamper(&mut inputs);
+        assert!(successor_store(&inputs).is_err(), "{case}: accepted");
+    }
+
+    fn finality(inputs: &mut ProofInputs) -> &mut FinalityUpdateGloas<Spec> {
+        match &mut inputs.finality_update {
+            FinalityUpdate::Gloas(u) => u,
+            _ => panic!("the fixture is Gloas"),
+        }
+    }
+
+    fn update(inputs: &mut ProofInputs) -> &mut UpdateGloas<Spec> {
+        match &mut inputs.updates[0] {
+            Update::Gloas(u) => u,
+            _ => panic!("the fixture is Gloas"),
+        }
+    }
+
+    /// Compressed G2 encodings with x = (k, 0): the first on the curve outside the subgroup, the first off it.
+    fn g2_points() -> ([u8; 96], [u8; 96]) {
+        use bls12_381::G2Affine;
+        let encode = |k: u8| {
+            let mut b = [0u8; 96];
+            b[0] = 0x80;
+            b[95] = k;
+            b
+        };
+        let on_curve = |b: &[u8; 96]| bool::from(G2Affine::from_compressed_unchecked(b).is_some());
+        let outside = (1..=255)
+            .map(encode)
+            .find(|b| on_curve(b) && bool::from(G2Affine::from_compressed(b).is_none()));
+        let off = (1..=255).map(encode).find(|b| !on_curve(b));
+        (outside.unwrap(), off.unwrap())
+    }
+
+    fn signature(bytes: &[u8]) -> Signature {
+        Signature::from_ssz_bytes(bytes).unwrap()
+    }
+
+    /// The compressed G1 point at infinity: a valid encoding, which decodes.
+    fn g1_identity() -> PublicKey {
+        let mut bytes = [0u8; 48];
+        bytes[0] = 0xc0;
+        assert!(bool::from(
+            bls12_381::G1Affine::from_compressed(&bytes)
+                .unwrap()
+                .is_identity()
+        ));
+        PublicKey::from_ssz_bytes(&bytes).unwrap()
+    }
+
+    #[test]
+    fn the_untampered_transition_is_accepted() {
+        let (head, _, committee) = store_roots(&successor_store(&one_update()).unwrap());
+        assert_eq!(head, 11388896);
+        assert_eq!(
+            committee,
+            update(&mut one_update())
+                .next_sync_committee
+                .tree_hash_root()
+        );
+    }
+
+    #[test]
+    fn tampered_signatures_are_refused() {
+        let (outside, off_curve) = g2_points();
+        let mut infinity = [0u8; 96];
+        infinity[0] = 0xc0;
+        let mut valid = finality(&mut one_update())
+            .sync_aggregate
+            .sync_committee_signature
+            .as_ssz_bytes();
+        let mut flag_cleared = valid.clone();
+        flag_cleared[0] &= 0x7f;
+        valid[95] ^= 1;
+        let bit_flipped = valid;
+        let cases: [(&str, &[u8]); 5] = [
+            ("outside the subgroup", &outside),
+            ("the point at infinity", &infinity),
+            ("not on the curve", &off_curve),
+            ("compression flag cleared", &flag_cleared),
+            ("one bit flipped", &bit_flipped),
+        ];
+        for (case, bytes) in cases {
+            refused(&format!("finality signature {case}"), |i| {
+                finality(i).sync_aggregate.sync_committee_signature = signature(bytes)
+            });
+            refused(&format!("update signature {case}"), |i| {
+                update(i).sync_aggregate.sync_committee_signature = signature(bytes)
+            });
+        }
+        refused("the update's signature on the finality update", |i| {
+            let other = update(i).sync_aggregate.sync_committee_signature.clone();
+            finality(i).sync_aggregate.sync_committee_signature = other;
+        });
+    }
+
+    fn finality_aggregate(inputs: &mut ProofInputs) -> &mut SyncAggregate<Spec> {
+        &mut finality(inputs).sync_aggregate
+    }
+
+    fn update_aggregate(inputs: &mut ProofInputs) -> &mut SyncAggregate<Spec> {
+        &mut update(inputs).sync_aggregate
+    }
+
+    #[test]
+    fn tampered_participation_is_refused() {
+        type Aggregate = fn(&mut ProofInputs) -> &mut SyncAggregate<Spec>;
+        for (signed, at) in [
+            ("finality update", finality_aggregate as Aggregate),
+            ("update", update_aggregate as Aggregate),
+        ] {
+            let bits = at(&mut one_update()).sync_committee_bits.clone();
+            let signer = (0..512).find(|&k| bits.get(k).unwrap()).unwrap();
+            refused(&format!("{signed}: a signer dropped"), |i| {
+                at(i).sync_committee_bits.set(signer, false).unwrap()
+            });
+            refused(&format!("{signed}: zero participants"), |i| {
+                for k in 0..512 {
+                    at(i).sync_committee_bits.set(k, false).unwrap();
+                }
+            });
+        }
+    }
+
+    /// The finality update's aggregate (None) or update `k`'s.
+    fn aggregate_at(inputs: &mut ProofInputs, at: Option<usize>) -> &mut SyncAggregate<Spec> {
+        match at {
+            None => inputs.finality_update.sync_aggregate_mut(),
+            Some(k) => inputs.updates[k].sync_aggregate_mut(),
+        }
+    }
+
+    #[test]
+    fn an_absent_member_claimed_as_a_signer_is_refused() {
+        // All 512 members signed both aggregates of the tracked transition, so this uses sp1-helios's fixtures
+        // (tools/bootstrap-deps.py), which have absent members. Each must verify untampered, and each must give at
+        // least one aggregate with an absent member, whose bit is then set: its key is not in the signature.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../vendor/sp1-helios/script/tests/fixtures");
+        for name in [
+            "proof_inputs.cbor",
+            "gloas_current.cbor",
+            "gloas_transition.cbor",
+        ] {
+            let path = dir.join(name);
+            let inputs = read_inputs(&path);
+            successor_store(&inputs).unwrap_or_else(|e| panic!("{name}: untampered: {e:#}"));
+            let mut claimed = 0;
+            for at in std::iter::once(None).chain((0..inputs.updates.len()).map(Some)) {
+                let bits = aggregate_at(&mut read_inputs(&path), at)
+                    .sync_committee_bits
+                    .clone();
+                let Some(absent) = (0..512).find(|&k| !bits.get(k).unwrap()) else {
+                    continue;
+                };
+                let mut tampered = read_inputs(&path);
+                aggregate_at(&mut tampered, at)
+                    .sync_committee_bits
+                    .set(absent, true)
+                    .unwrap();
+                assert!(
+                    successor_store(&tampered).is_err(),
+                    "{name}, aggregate {at:?}: absent member {absent} claimed, accepted"
+                );
+                claimed += 1;
+            }
+            assert!(claimed > 0, "{name}: no aggregate with an absent member");
+        }
+    }
+
+    #[test]
+    fn tampered_slots_and_periods_are_refused() {
+        refused("a signature slot after expected_current_slot", |i| {
+            i.expected_current_slot = finality(i).signature_slot - 1
+        });
+        refused("a signature slot two periods ahead", |i| {
+            finality(i).signature_slot += 8192;
+            i.expected_current_slot += 8192;
+        });
+        refused("the update's signature slot a period ahead", |i| {
+            update(i).signature_slot += 8192;
+            i.expected_current_slot += 8192;
+        });
+    }
+
+    #[test]
+    fn tampered_finality_and_headers_are_refused() {
+        refused("a finality branch node changed", |i| {
+            finality(i).finality_branch[0].0[0] ^= 1
+        });
+        refused("the finalized header moved", |i| {
+            finality(i).finalized_header_gloas.beacon.slot += 32
+        });
+        refused("the finalized state root changed", |i| {
+            finality(i).finalized_header_gloas.beacon.state_root.0[0] ^= 1
+        });
+        refused("the attested header changed", |i| {
+            finality(i).attested_header_gloas.beacon.body_root.0[0] ^= 1
+        });
+    }
+
+    #[test]
+    fn the_next_committee_is_bound_by_its_branch() {
+        refused("a next-committee key changed", |i| {
+            let u = update(i);
+            u.next_sync_committee.pubkeys[0] = u.next_sync_committee.pubkeys[1].clone();
+        });
+        refused("the next committee's aggregate key changed", |i| {
+            let u = update(i);
+            u.next_sync_committee.aggregate_pubkey = u.next_sync_committee.pubkeys[0].clone();
+        });
+        refused("the next committee's aggregate key the identity", |i| {
+            update(i).next_sync_committee.aggregate_pubkey = g1_identity()
+        });
+        refused("a next-committee branch node changed", |i| {
+            update(i).next_sync_committee_branch[0].0[0] ^= 1
+        });
+        refused("the update dropped", |i| i.updates.clear());
+    }
+
+    #[test]
+    fn the_anchored_committee_is_bound_by_signature_or_lc() {
+        let anchored = anchor_of(&one_update()).unwrap().lc;
+        // Any key change moves prev_lc, so a proof from it cannot spend the state, whether or not it verifies.
+        for k in [0, 255, 511] {
+            let mut inputs = one_update();
+            let other = inputs.store.current_sync_committee.pubkeys[(k + 1) % 512].clone();
+            inputs.store.current_sync_committee.pubkeys[k] = other;
+            assert_ne!(anchor_of(&inputs).unwrap().lc, anchored, "key {k}");
+        }
+        let mut inputs = one_update();
+        inputs.store.current_sync_committee.aggregate_pubkey =
+            PublicKey::from_ssz_bytes(&[0x11; 48]).unwrap();
+        assert_ne!(anchor_of(&inputs).unwrap().lc, anchored, "aggregate key");
+        // The anchored aggregate key signs the update (non-signers are subtracted from it), so it is also checked.
+        refused("the anchored aggregate key changed", |i| {
+            let c = &mut i.store.current_sync_committee;
+            c.aggregate_pubkey = c.pubkeys[0].clone();
+        });
+        refused("the anchored aggregate key the identity", |i| {
+            i.store.current_sync_committee.aggregate_pubkey = g1_identity()
+        });
+        // A prover-supplied next committee is discarded: the same successor store.
+        let mut inputs = one_update();
+        let mut injected = inputs.store.current_sync_committee.clone();
+        injected.pubkeys[0] = PublicKey::from_ssz_bytes(&[0x22; 48]).unwrap();
+        inputs.store.next_sync_committee = Some(injected);
+        assert_eq!(
+            store_roots(&successor_store(&inputs).unwrap()),
+            store_roots(&successor_store(&one_update()).unwrap())
+        );
+        assert_eq!(anchor_of(&inputs).unwrap().lc, anchored);
+        // A prover-supplied best_valid_update reaches no output (the guest's stdin no longer carries it).
+        let mut inputs = one_update();
+        inputs.store.best_valid_update = Some(GenericUpdate::from(&transition().updates[1]));
+        assert_eq!(
+            store_roots(&successor_store(&inputs).unwrap()),
+            store_roots(&successor_store(&one_update()).unwrap())
+        );
     }
 }

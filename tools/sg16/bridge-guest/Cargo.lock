@@ -4371,7 +4371,6 @@ dependencies = [
 [[package]]
 name = "helios-consensus-core"
 version = "0.12.0"
-source = "git+https://github.com/a16z/helios?tag=0.12.0#2af9b41887e069144ee56cd710f3ddca195473f8"
 dependencies = [
  "alloy 2.1.0",
  "alloy-rlp",
@@ -8031,8 +8030,16 @@ dependencies = [
 name = "sg16-bridge-core"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus 2.1.0",
+ "alloy-primitives",
+ "ethereum_ssz 0.9.0",
+ "helios-consensus-core",
+ "serde",
+ "serde_cbor",
  "serde_json",
  "sha2 0.10.9",
+ "sp1-helios-primitives",
+ "ssz_types",
 ]
 
 [[package]]
@@ -8041,6 +8048,8 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "bls12_381",
+ "ethereum_ssz 0.9.0",
  "helios-consensus-core",
  "helios-ethereum",
  "hex",
@@ -8048,12 +8057,15 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "sg16-bridge-core",
+ "sha2 0.9.9",
  "sp1-helios-primitives",
  "sp1-helios-script",
  "sp1-recursion-gnark-ffi",
  "sp1-sdk",
+ "ssz_types",
  "tokio",
  "tree_hash 0.10.0",
+ "tree_hash_derive 0.10.0",
 ]
 
 [[package]]

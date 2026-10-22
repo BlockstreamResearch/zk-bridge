@@ -10,10 +10,33 @@ name = "sg16-bridge-core"
 path = "src/bin/sg16-bridge-core.rs"
 required-features = ["cli"]
 
+[[test]]
+name = "guest_input"
+required-features = ["guest-input"]
+
 [features]
 default = []
 cli = ["dep:serde_json"]
+# The guest's stdin encoding (src/guest_input.rs), for the guest and the host.
+guest-input = [
+    "dep:alloy-consensus",
+    "dep:alloy-primitives",
+    "dep:ethereum_ssz",
+    "dep:helios-consensus-core",
+    "dep:serde",
+    "dep:serde_cbor",
+    "dep:sp1-helios-primitives",
+    "dep:ssz_types",
+]
 
 [dependencies]
 sha2 = { workspace = true }
 serde_json = { workspace = true, optional = true }
+alloy-consensus = { version = "=2.1.0", default-features = false, features = ["serde"], optional = true }
+alloy-primitives = { workspace = true, optional = true }
+ethereum_ssz = { version = "0.9", optional = true }
+helios-consensus-core = { workspace = true, optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_cbor = { workspace = true, optional = true }
+sp1-helios-primitives = { workspace = true, optional = true }
+ssz_types = { version = "0.11", optional = true }

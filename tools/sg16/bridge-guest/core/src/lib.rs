@@ -23,6 +23,9 @@
 
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "guest-input")]
+pub mod guest_input;
+
 /// Domain tag of the guest's public values (word 0 is its SHA-256).
 pub const UPDATE_TAG: &[u8] = b"liquid-bridge-poc/update";
 /// Domain tag of the light-client commitment `lc`.

@@ -140,7 +140,7 @@ jobs:
       # The core crate alone; the program crate is the pinned SP1 guest and builds only in the SP1 image.
       - name: Guest core
         run: |
-          cargo test --release --locked -p sg16-bridge-core --manifest-path tools/sg16/bridge-guest/Cargo.toml
+          cargo test --release --locked -p sg16-bridge-core --features guest-input --manifest-path tools/sg16/bridge-guest/Cargo.toml
           cargo build --release --locked -p sg16-bridge-core --features cli --manifest-path tools/sg16/bridge-guest/Cargo.toml
       - name: Transaction tool
         env:
