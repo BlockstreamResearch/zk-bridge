@@ -6,6 +6,13 @@
    "header": "2e332bcda9798450fa027c09fe4101b8fe5483a672ce2fe93b8c7d56797e10ae",
    "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
    "store": "lc_stores/11411648.json"
+  },
+  {
+   "head": 11412000,
+   "header": "973216a5881fd04b61c69d83033535d3a61f606f41afa1640c4f26ff52449c24",
+   "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
+   "update": "b451647913df68c58626dcc5c9b7de4c2e00f9b7b1f894bcd9d450e7dcd84215",
+   "store": "lc_stores/11412000.json"
   }
  ]
 }
