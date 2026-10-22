@@ -1,20 +1,20 @@
 {
  "name": "sepolia-liquid-testnet",
- "ESCROW": "10c4279b2c80df825fde7165e4c6e7d9e16594a2",
- "ESCROW_CODE_HASH": "7d72c0d43c0b56e82f9907aeb486b80eba1ec8c390935ba806b9c925db71c36c",
- "ESCROW_DEPLOY_BLOCK": 11969660,
- "DEPOSIT_DOMAIN": "c01b51158c8170318b7302edf3a464b57d2695d7574eb41fd9cf0eea6438892a",
- "GUEST_ELF_SHA256": "51e486a3dd022dfd75a798a793cbca738324d558ce0ace8affde8a85e27aeabd",
- "PROGRAM_VKEY": "002a725145d840f50eb445417d03eeb9070ffee307180d2d0e6eba0d77354962",
+ "ESCROW": "faf2124aa42ecabaff59e0f203a7e6e21b53fcd3",
+ "ESCROW_CODE_HASH": "9c86f98b59ad3144f56f4a7bafbfe459b4b3587a35df05cd2da6e88d3933b3f2",
+ "ESCROW_DEPLOY_BLOCK": 11972032,
+ "DEPOSIT_DOMAIN": "b23902731346b6f3987b8f4a116421a59fa6b204729d8d0ab643b648315a993f",
+ "GUEST_ELF_SHA256": "77d2a9d8850bad5cc7c95ed85d3b3aa00fd8e0e19c4699078283decc829a39a7",
+ "PROGRAM_VKEY": "004f372912b3a05c305ed7abc9d41c4945ca7c81d24145e857e887294847cd74",
  "ANCHOR": {
-  "slot": 11411648,
-  "header": "2e332bcda9798450fa027c09fe4101b8fe5483a672ce2fe93b8c7d56797e10ae",
+  "slot": 11414048,
+  "header": "f9e13a230cddfb1046a38a733917d36f254d6f0b36fce564dabab0548c7c559a",
   "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
-  "lc": "1b9dfb0119e8298de00f89b381e70517dc11f1169f9d379a2dce33e380cbc159"
+  "lc": "0c7e4435ba9f691508aa75937a595140a37f058f383fa657e6dab8921c4fe018"
  },
  "sources": {
-  "ESCROW": "Sepolia transaction 0xf21f86145e0db8b24ef03ce532d664e5f026c39468c1bae0a201ba55aad813e7 in block 11969660; its runtime code hash equals a local FOUNDRY_PROFILE=deploy build simulated from the same deployer nonce; its checkpoint and depositsEnd, read at that block, are the simulated parameters",
+  "ESCROW": "Sepolia transaction 0x66a7908e2400f700486e3a6d1b4b623b53bb7aa1bec605a161fab75441422e32 in block 11972032; its runtime code hash equals a local FOUNDRY_PROFILE=deploy build simulated from the same deployer nonce; its checkpoint and depositsEnd, read at that block, are the simulated parameters",
   "GUEST": "just prover (SP1 6.8.1, Docker image v6.8.1) from this checkout; sg16-bridge-host vkey",
-  "ANCHOR": "sg16-bridge-host anchor of inputs from a light-client bootstrap at slot 11411648"
+  "ANCHOR": "sg16-bridge-host anchor of inputs from a light-client bootstrap at slot 11414048"
  }
 }

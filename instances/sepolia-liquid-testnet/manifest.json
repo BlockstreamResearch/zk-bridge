@@ -13,9 +13,9 @@
   "genesis_validators_root": "d8ea171f3c94aea21ebc42a1ed61052acf3f9209c00e4efbaaddac09ed9b8078",
   "config": "9136bc64990eb152395e155d2bbf4f93e5ed47c4f20798087974311f65a7c7f4",
   "forks": "genesis 0 0x90000069, altair 50 0x90000070, bellatrix 100 0x90000071, capella 56832 0x90000072, deneb 132608 0x90000073, electra 222464 0x90000074, fulu 272640 0x90000075, gloas 353024 0x90000076",
-  "escrow": "10c4279b2c80df825fde7165e4c6e7d9e16594a2",
-  "escrow_code_hash": "7d72c0d43c0b56e82f9907aeb486b80eba1ec8c390935ba806b9c925db71c36c",
-  "deposit_domain": "c01b51158c8170318b7302edf3a464b57d2695d7574eb41fd9cf0eea6438892a",
+  "escrow": "faf2124aa42ecabaff59e0f203a7e6e21b53fcd3",
+  "escrow_code_hash": "9c86f98b59ad3144f56f4a7bafbfe459b4b3587a35df05cd2da6e88d3933b3f2",
+  "deposit_domain": "b23902731346b6f3987b8f4a116421a59fa6b204729d8d0ab643b648315a993f",
   "empty_accumulator": "599a138751eff83dede1626e2b829115daec48df7347335cbe509218d65f59af",
   "slot_key": 0
  },
@@ -24,99 +24,99 @@
   "layout": "v6.1.0",
   "helios_commit": "0dd8749f1e6c2c2302cd92931f8af63a6330af08",
   "guest": "sg16-bridge-program",
-  "elf_sha256": "51e486a3dd022dfd75a798a793cbca738324d558ce0ace8affde8a85e27aeabd",
-  "program_vkey": "002a725145d840f50eb445417d03eeb9070ffee307180d2d0e6eba0d77354962",
+  "elf_sha256": "77d2a9d8850bad5cc7c95ed85d3b3aa00fd8e0e19c4699078283decc829a39a7",
+  "program_vkey": "004f372912b3a05c305ed7abc9d41c4945ca7c81d24145e857e887294847cd74",
   "verifier_hash": "4388a21c687fdd5f218d7e3d13190cac4c5355818d3605fd5fb811df468ee696",
   "vk_root": "002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352"
  },
  "bootstrap": {
-  "funding_txid": "cc1cebc80541c31730a9c74ff0aaa52bf235efb1c0894fb558c76892bee74672",
+  "funding_txid": "eb4c35908b17d5d977b4e915998092ebdda5d79fbf46fa2c0fbf5010fcccae90",
   "funding_vout": 1,
   "contract_hash": "0000000000000000000000000000000000000000000000000000000000000000",
-  "entropy": "0446c334493047ef47b4ae26cc642ca2eb3551409602072001bc5e52475889a5",
-  "asset": "d2b96b18e0740da701b4d9e47fc31d09ac787cf598e5a02005445441dc28bb3e",
-  "token": "8d8f495e3ea305b576c4b7f62ad84019244752d637013a95802c1a72e307cd37",
-  "asset_display": "3ebb28dc4154440520a0e598f57c78ac091dc37fe4d9b401a70d74e0186bb9d2",
-  "token_display": "37cd07e3721a2c80953a0137d65247241940d82af6b7c476b505a33e5e498f8d"
+  "entropy": "72829d55779487938616f6820c50257549d57901b223f1f19abdf366a2d1442e",
+  "asset": "95d81aa187adacab34851e6f075904287889a4f722feec2d9ede382cde9a443b",
+  "token": "e7bee4998458927bb869a0714daf0223c281d51789cc6617f91f23d518e2d4ba",
+  "asset_display": "3b449ade2c38de9e2decfe22f7a48978280459076f1e8534abacad87a11ad895",
+  "token_display": "bad4e218d5231ff91766cc8917d581c22302af4d71a069b87b92588499e4bee7"
  },
  "harness_config": {
   "genesis": "c1b16ae24f2423aea2ea34552292793b5b5e82999a1eed81d56aee528eda71a7",
-  "entropy": "0446c334493047ef47b4ae26cc642ca2eb3551409602072001bc5e52475889a5",
+  "entropy": "72829d55779487938616f6820c50257549d57901b223f1f19abdf366a2d1442e",
   "fee_asset": "499a818545f6bae39fc03b637f2a4e1e64e590cac1bc3a6f6d71aa4443654c14",
-  "abf_a": "78b81f24eb95c3df2c1d394c50af6ba0611bab32bd6f930200657adc5b43ad3f",
-  "abf_b": "4d8e1e3b5a34dfee134ed7dc50f08040a6a2d1bdc55feb32b8e29d42bf080344",
-  "escrow": "10c4279b2c80df825fde7165e4c6e7d9e16594a2"
+  "abf_a": "478aaf08ff69ffcda14c390691350fe045fca38a7ceca59448120a9e0a7a52a9",
+  "abf_b": "f314a0f1156f9ba4b356dd4a44996aec63fd52e80a8f71a8f2c230d4e4683a70",
+  "escrow": "faf2124aa42ecabaff59e0f203a7e6e21b53fcd3"
  },
  "constants": {
-  "asset": "d2b96b18e0740da701b4d9e47fc31d09ac787cf598e5a02005445441dc28bb3e",
-  "escrow": "10c4279b2c80df825fde7165e4c6e7d9e16594a2",
+  "asset": "95d81aa187adacab34851e6f075904287889a4f722feec2d9ede382cde9a443b",
+  "escrow": "faf2124aa42ecabaff59e0f203a7e6e21b53fcd3",
   "fee_asset": "499a818545f6bae39fc03b637f2a4e1e64e590cac1bc3a6f6d71aa4443654c14",
   "genesis": "c1b16ae24f2423aea2ea34552292793b5b5e82999a1eed81d56aee528eda71a7",
   "nums": "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
-  "token": "8d8f495e3ea305b576c4b7f62ad84019244752d637013a95802c1a72e307cd37",
+  "token": "e7bee4998458927bb869a0714daf0223c281d51789cc6617f91f23d518e2d4ba",
   "token_a": {
-   "bit": 0,
-   "x": "c95fe5bc1057d76198437eb534ebb73565933abf2e728bc618d6f728dc24ac81"
+   "bit": 1,
+   "x": "29541348e2946c33719543317c61b31260ab3a617abe75907288d16973bc9b99"
   },
   "token_b": {
    "bit": 0,
-   "x": "79509ce4bbc7d6bf0ed2dadb4e6e0a026405a54fa08747bb0c37c1b28981a1f2"
+   "x": "cd43f339f87a6158df3b34fe5cab65837e1e0fc59cdd7fa043854b6945b9cb9a"
   },
   "token_value": {
-   "bit": 1,
-   "x": "3763e515ec556e932ee8264f59c97b71aaed87f560d523e7384e729fb4f02bcc"
+   "bit": 0,
+   "x": "ae1a762d742c3ee26de5d5f93be0a7483bd6ce8d0040ecf84a8e2fb7fc8de776"
   }
  },
  "claim_leaf": {
-  "cmr": "fa09fef756691ab5fd8a85c09706e484c068c6c39208ef4f3667bff4e18ab849",
-  "source_sha256": "51c1716090c89abf02d0aaa05de221cc71144f5a1659747142f79a6ff067422a",
+  "cmr": "7ac0b4fece564e5d2f08437002f5599c0b6f4dc2b525400183dfc12e32e39649",
+  "source_sha256": "b95bb275d03e0ee7366e3ccb27a68039d09c2edc959d1cd23fd6e616298f6143",
   "toolchain": "SimplicityHL f3fa882e / rust-simplicity a8896cf9 (tools/bootstrap-deps.py)"
  },
  "update_leaf": {
-  "cmr": "bac4d6ddd484268f8632ed473d042d68b8c382a05e6c5bdf2b63b3fc4f8b0ce2",
+  "cmr": "3e9ad55bfcbd9a6392171a5d08bfffa03dfb96e764b1410e0e0288ff1217601a",
   "program": "instances/sepolia-liquid-testnet/update_leaf.simpl",
-  "text_sha256": "0f638c79e63c82359d8c7e1ceedc2f839dfba3bbdb11fb95abc225578f6c4520",
-  "text_bytes": 2767083,
+  "text_sha256": "008625314a232e50152b9f110c70653e2b6603ad10c09e238cd690b862bf3c13",
+  "text_bytes": 2767044,
   "generator": "simple-groth16 a3ac525296ac1706099968f37a575007b89a5bdb",
   "generator_source_sha256": "aed9475ecd2e87d1f0e54b77a802d7f405e311bfa1246946e19685ecb4004d60",
   "inputs": 1,
-  "predicted_cost": 48885848,
-  "key": "SP1 v6.1.0 Groth16Verifier.sol (pinned coordinates), folded: program vkey 002a725145d840f50eb445417d03eeb9070ffee307180d2d0e6eba0d77354962, exit code 0, VK_ROOT, proof nonce 0",
+  "predicted_cost": 48885568,
+  "key": "SP1 v6.1.0 Groth16Verifier.sol (pinned coordinates), folded: program vkey 004f372912b3a05c305ed7abc9d41c4945ca7c81d24145e857e887294847cd74, exit code 0, VK_ROOT, proof nonce 0",
   "budget": {
    "witness_bits": 6272,
    "rehearsal": {
     "ok": true,
     "key": "synthetic five-input key, folded",
     "inputs": 1,
-    "predicted_cost": 48885848,
-    "cost": 48885848,
-    "budget_mwu": 53791000,
-    "program_bytes": 34963,
+    "predicted_cost": 48885568,
+    "cost": 48885568,
+    "budget_mwu": 53799000,
+    "program_bytes": 34971,
     "witness_bytes": 18640,
-    "tx_weight": 59090,
+    "tx_weight": 59098,
     "witness_bits": 6272,
     "failure": null
    }
   },
-  "compile_seconds": 130
+  "compile_seconds": 205
  },
  "initial_state": {
-  "head": 11411648,
-  "header": "2e332bcda9798450fa027c09fe4101b8fe5483a672ce2fe93b8c7d56797e10ae",
+  "head": 11414048,
+  "header": "f9e13a230cddfb1046a38a733917d36f254d6f0b36fce564dabab0548c7c559a",
   "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
   "acc": "599a138751eff83dede1626e2b829115daec48df7347335cbe509218d65f59af",
   "claimed": [],
   "claimed_root": "c6f67e02e6e4e1bdefb994c6098953f34636ba2b6ca20a4721d2b26a886722ff",
-  "lc": "1b9dfb0119e8298de00f89b381e70517dc11f1169f9d379a2dce33e380cbc159",
-  "state_hash": "ceed4b6e5ee21e23e9e960547f29418bc3acf6485543229c010790f3005c244b"
+  "lc": "0c7e4435ba9f691508aa75937a595140a37f058f383fa657e6dab8921c4fe018",
+  "state_hash": "0a1d301245436f69b6701a72eb87192127773092d234356c018c6e346aaabd01"
  },
  "state_tree": {
-  "script_pubkey": "5120d30b9fc84d09d4d1cd1ec37d9fc149acc73d3f8eb6f60d6bd5faa5d78f62209c",
-  "address": "tex1p6v9eljzdp82drng7cd7els2f4nrn60uwkmmq6674l2ja0rmzyzwqvw7mhp",
-  "output_key": "d30b9fc84d09d4d1cd1ec37d9fc149acc73d3f8eb6f60d6bd5faa5d78f62209c",
-  "merkle_root": "eb7bdde7d7d51a9c38b4c7cb66be74a0167544c5b5cbda793b794c4335e440ee",
-  "update_control": "be50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac00eedf6dfe61a96c557698e0cbab1b981b52385051f7e060d4291d039d60d69460ef8e1ad4a0cc281b8391dfc90abcca6afc4a7001560f893a5083811b99c60ca",
-  "claim_control": "be50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0c41762a0c04889e360d1e14614ce30bff86e4f06c8365de013e2f595edad911b0ef8e1ad4a0cc281b8391dfc90abcca6afc4a7001560f893a5083811b99c60ca"
+  "script_pubkey": "512074693b72b4e29482c5ec669d4d5c784fd5b24c2a1bba6de526cd78782902683f",
+  "address": "tex1pw35nku45u22g930vv6w56hrcfl2mynp2rwaxmefxe4u8s2gzdqlswafsrc",
+  "output_key": "74693b72b4e29482c5ec669d4d5c784fd5b24c2a1bba6de526cd78782902683f",
+  "merkle_root": "bed690437679185a8fa5cd30b025c8a3faf466ec78c7f14f8d0e48abe0570be9",
+  "update_control": "be50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac059304d038f5274722d96dab84632f28e8c6d19d122741e543c69446f48c95fdec1320ded9335fe2489b639acab3bb52b673a74d47434732bb75f9ff8d629310c",
+  "claim_control": "be50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0f240368ce5687e527c79ca82e7f0c569535ed9198d6472b537bdefb11dd2ef8dc1320ded9335fe2489b639acab3bb52b673a74d47434732bb75f9ff8d629310c"
  },
  "gates": [
   {

@@ -63,8 +63,8 @@ DEPLOY_KEYSTORE := env("DEPLOY_KEYSTORE", "")
 DEPLOY_PASSWORD_FILE := env("DEPLOY_PASSWORD_FILE", "")
 # The guest build the new instance pins: `just prover` from this checkout (SP1 6.8.1, Docker image v6.8.1).
 # deploy-record refuses an ELF that does not give exactly these.
-DEPLOY_GUEST_ELF_SHA256 := "51e486a3dd022dfd75a798a793cbca738324d558ce0ace8affde8a85e27aeabd"
-DEPLOY_PROGRAM_VKEY := "002a725145d840f50eb445417d03eeb9070ffee307180d2d0e6eba0d77354962"
+DEPLOY_GUEST_ELF_SHA256 := "77d2a9d8850bad5cc7c95ed85d3b3aa00fd8e0e19c4699078283decc829a39a7"
+DEPLOY_PROGRAM_VKEY := "004f372912b3a05c305ed7abc9d41c4945ca7c81d24145e857e887294847cd74"
 # Sepolia's Amsterdam fork charges state gas for deployed bytecode. Foundry's Prague simulator omits it, so use a
 # larger transaction limit and compare it with eth_estimateGas on Sepolia before signing.
 DEPLOY_GAS_MULTIPLIER := "800"
