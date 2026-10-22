@@ -220,6 +220,15 @@ just stage-recovered                              # optional: stage the rebuilt 
 - **Verification.** The store is written to `$BRIDGE_WORK/reconstructed.store.json` only after it matches. `sg16-bridge-host check-store` then recomputes its roots from its CBOR and compares them with the `lc` read from Liquid, and `recover` completes the state record with it. The recipe prints `recovered:` only after all three checks pass. `inputs` checks the store against the live `lc` again, and `execute` and `prove` start only on inputs anchored at the live head and `lc`.
 - **Continuation.** Prove and build the update as usual. With Humid, load the local successor store alongside the unsigned update; publication is optional. With `just broadcast`, stage, publish and read back the successor store first. Share or publish the store so the next prover does not repeat this recovery. `just stage-recovered` writes the rebuilt store into `instances/<name>/lc_stores/<head>.json` and `lc_preimages.json`, under the update that reached the head, in head order. Publish it with the record, so that later provers need neither the Beacon data nor your work directory.
 - **When the data is gone.** If no source holds the head's committee, `reconstruct` refuses and writes nothing. The refusal lists the candidates tried, what the beacon node did not serve (each error cut to one line), and how far the head lies behind the node's finalized slot compared with the recommended 14,299-epoch (about 64-day) window. Inside the window, try another beacon API. Past it, you need an archive beacon node or an archived store or inputs file of that sync-committee period. Until one is found, deposits after that head cannot be proven. Claims of deposits the live state already proves still work: they need only `lc`.
+- **Minimized inputs as an archive.** `just inputs` removes committee updates the proof does not need. For saved inputs, use `sg16-bridge-host minimize <inputs.cbor> --out <new file>`; it never overwrites a file. Public values and the successor's `lc` stay the same, although untrusted participation counters in the store can differ. A removed update may contain committee data useful for later recovery. Share or publish the successor store so the next prover can continue without reconstructing it.
+
+  To archive every fetched update, run `just recover`, then use its store path and the recovered `lc` with the instance's escrow address:
+
+  ```sh
+  tools/sg16/bridge-guest/target/release/sg16-bridge-host inputs \
+    --store <recover.json result.lc_store> --lc <state.json lc> \
+    --escrow <instance.json ESCROW> --out target/takeover/inputs.cbor --all-updates
+  ```
 
 ### Claiming a deposit
 

@@ -643,7 +643,8 @@ status deposit='': recover deposits
         print(f"next: nothing; every final deposit to escrow {escrow} is proven and claimed")
     PY
 
-# Build proof inputs from the live head's store: the published one, or the one `just reconstruct` rebuilt.
+# Build proof inputs from the live head's store: the published one, or the one `just reconstruct` rebuilt. Only the
+# sync-committee updates the proof needs are kept; OPERATOR.md "Minimized inputs" gives the direct command for all.
 [group('prove')]
 inputs: recover
     #!/usr/bin/env bash
