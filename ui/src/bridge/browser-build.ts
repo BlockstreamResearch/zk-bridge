@@ -39,6 +39,9 @@ const MAX_LOG_REQUESTS = 20_000;
 const MAX_RECORD_BYTES = 2 * 1024 * 1024;
 const MAX_TX_HEX = 8 * 1024 * 1024;
 const MAX_COMPILED_HEX = 8 * 1024 * 1024;
+// The update leaf's witness nodes (tools/sg16/sg16/covenant.py): w_in, the leaf of each of the 88 Miller loop
+// steps, and the quotient Q.
+const WITNESS_NODES = ['w_in', ...Array.from({ length: 88 }, (_, k) => `wl${k}`), 'wq'];
 const LIQUID_GENESIS = 'a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1';
 type ObjectValue = Record<string, unknown>;
 
@@ -328,7 +331,9 @@ export async function prepareBrowserUpdate(args: CommonArgs & { bundle: unknown 
   same(bytesToHex(sha256(program)), word(update.text_sha256, 'Update program hash'), 'Proof program hash');
   same(program.length, integer(update.text_bytes, 'Update program byte count'), 'Proof program byte count');
   const witness = object(bundle.witness, 'Proof witness');
-  if (Object.keys(witness).length !== 1 || !Object.hasOwn(witness, 'w_in')) throw new Error('Proof witness must contain exactly w_in.');
+  if (Object.keys(witness).length !== WITNESS_NODES.length || !WITNESS_NODES.every((name) => Object.hasOwn(witness, name))) {
+    throw new Error('Proof witness must contain exactly the update leaf\'s witness nodes: w_in, wl0 to wl87 and wq.');
+  }
   core.storeFile(JSON.stringify(bundle.successor_store), { head: next.head as number, lc: next.lc as string }, 'Proof successor store');
   await common.recheck();
   // The source remains in the bundle for review. Execution uses only its compiled form.

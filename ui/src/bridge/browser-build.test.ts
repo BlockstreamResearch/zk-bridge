@@ -99,7 +99,8 @@ function setup(claim = false) {
   next.state_hash = core.stateHash({ lc, acc: next.acc, claimedRoot: next.claimed_root });
   const bundle = { schema: 'zk-bridge/browser-proof', instance: { liquid: manifest.liquid, sepolia: manifest.sepolia, sp1: manifest.sp1,
     update_cmr: manifest.update_leaf.cmr, claim_cmr: manifest.claim_leaf.cmr }, state: { ...initial }, new_state: next,
-    program: PROGRAM, witness: { w_in: '0x00' },
+    program: PROGRAM, witness: Object.fromEntries(['w_in', ...Array.from({ length: 88 }, (_, k) => `wl${k}`), 'wq']
+      .map((name) => [name, '0x00'])) as Record<string, string>,
     compiled_program: { program_hex: 'deadbeef', witness_hex: '00', cmr: manifest.update_leaf.cmr as string },
     successor_store: { head, header, committee, lc, store_cbor: '00' } };
   return { args: { instance, esplora, readEth, readRecord, feeTxid: fee.txid, feeVout: 0 }, manifest, pins, live, raw,
@@ -220,6 +221,12 @@ describe('browser transaction input preparation', () => {
     delete bundle.compiled_program;
     await expect(prepareBrowserUpdate({ ...f.args, bundle })).rejects.toThrow(/Run just proof-bundle again/);
     expect(f.readEth).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bundle witness without the update leaf\'s witness nodes', async () => {
+    const f = setup();
+    f.bundle.witness = { w_in: '0x00' };
+    await expect(prepareBrowserUpdate({ ...f.args, bundle: f.bundle })).rejects.toThrow(/witness nodes/);
   });
 
   it('rejects a compiled proof for another update CMR', async () => {
