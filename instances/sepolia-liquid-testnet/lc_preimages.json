@@ -1,46 +1,11 @@
 {
- "about": "The starting store is public. Publish every successor store and the transaction ID of the update that reached it before broadcasting that update.",
+ "about": "The starting store is public. Share or publish every successor store for the next prover. Humid accepts a local store file; just broadcast requires publication and readback first.",
  "preimages": [
   {
-   "head": 11399456,
-   "header": "984fc1d4ad0ef090ce32428fcfec5f16280ea21f8bf9e4c1035c90525783228e",
-   "committee": "e0a6ede4f641fa171bd6cdca25356f98b48039fbe01454685ea4b234ace4fac9",
-   "store": "lc_stores/11399456.json"
-  },
-  {
-   "head": 11399744,
-   "header": "0473c2cef350190718686562ac8f6a7686956a4b830fb7eb2d500cbcd5a9a808",
-   "committee": "e0a6ede4f641fa171bd6cdca25356f98b48039fbe01454685ea4b234ace4fac9",
-   "update": "9168c6898215a50085c95c70123ff121a5db63065ef6d81b9ce162582e6a4dd7",
-   "store": "lc_stores/11399744.json"
-  },
-  {
-   "head": 11403552,
-   "header": "0e9501b0b428c9fa6aba5865586ff1b4d1a703f2414b0379493b3d0b93184930",
-   "committee": "8cd46d3d63d19184d7cb71e58fa376fdbca2d59bc46d2b02db7d37673decf5af",
-   "update": "b6f7fd38f7d7e9d83006f0efda025c0ccdaf2a0da3092e0beb34481a3ed66509",
-   "store": "lc_stores/11403552.json"
-  },
-  {
-   "head": 11403744,
-   "header": "f9699b669ef331cd5964daa5427953070e3ee995068e363ae7acfcc7ba85200e",
-   "committee": "8cd46d3d63d19184d7cb71e58fa376fdbca2d59bc46d2b02db7d37673decf5af",
-   "update": "5654a18173b8db69ce06810739cff6910c2a25138bdfbab68e5a2f205a632344",
-   "store": "lc_stores/11403744.json"
-  },
-  {
-   "head": 11404224,
-   "header": "c60a878c07cdc36ab9bcc1cab847b80c4414cd229fa3a1320ed87fc934dd79a1",
-   "committee": "8cd46d3d63d19184d7cb71e58fa376fdbca2d59bc46d2b02db7d37673decf5af",
-   "update": "f8ce8f97680b31ae0387452e2aa1f0756a03494fece01a690890c93d975f9be7",
-   "store": "lc_stores/11404224.json"
-  },
-  {
-   "head": 11404640,
-   "header": "4b67c82e76c218aed93146ad5a1c886134447f09fe78851825a730000511bd40",
-   "committee": "8cd46d3d63d19184d7cb71e58fa376fdbca2d59bc46d2b02db7d37673decf5af",
-   "update": "4f3caa27e4aa22d9b59bd8c009de491f03b6bfb67e80e6864df0703a10ea7040",
-   "store": "lc_stores/11404640.json"
+   "head": 11411648,
+   "header": "2e332bcda9798450fa027c09fe4101b8fe5483a672ce2fe93b8c7d56797e10ae",
+   "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
+   "store": "lc_stores/11411648.json"
   }
  ]
 }

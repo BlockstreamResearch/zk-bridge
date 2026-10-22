@@ -13,10 +13,10 @@ import { depositRecipient, ethAddress } from './lib/bridge.js';
 
 export const INSTANCE = parseInstance({
   name: 'sepolia-liquid-testnet',
-  escrow: '0xa575fca96f5079e50ffc568c44a65598a35ee2a8',
-  codeHash: '16e9013879ca9176cd66f8ae0d1d1670b2e61a0566d9e5a024181a23abd4b71d',
-  bootstrap: '530d7b1dda19256e8708f154d525d4c0baa0337f9899faa9ceeeb73a8dbc8370',
-  state: 'tex1ppan2m2xagngp520prm829r8r6l5jwqwe3xye9tw9g0dpkjg4pccsvm0vnk',
+  escrow: '0x10c4279b2c80df825fde7165e4c6e7d9e16594a2',
+  codeHash: '7d72c0d43c0b56e82f9907aeb486b80eba1ec8c390935ba806b9c925db71c36c',
+  bootstrap: 'eb4c35908b17d5d977b4e915998092ebdda5d79fbf46fa2c0fbf5010fcccae90',
+  state: 'tex1p6v9eljzdp82drng7cd7els2f4nrn60uwkmmq6674l2ja0rmzyzwqvw7mhp',
 });
 
 /**
