@@ -66,13 +66,14 @@ machine you control. Use the same repository revision and instance on both:
 2. On the proving machine, run `just deps tools prover check-elf`, then `just prove`.
    Proof generation from saved inputs needs no wallet key or chain RPC credentials.
    Dependency and proving-parameter downloads may still need Internet access.
-3. Copy `target/takeover/proof.json` and `target/takeover/proof.store.json` back.
-   Keep the pair together. On the original machine, run `just recover check-artifact`
-   before `just update-unsigned <Humid fee txid> <output number>`. The update builder
-   verifies the Groth16 proof locally. If the bridge state advanced meanwhile,
-   follow the new `just status <deposit number>` instructions instead.
-4. Load the unsigned update and store into the website and approve with Humid
-   as usual. Moving proof generation does not give that machine spending authority.
+3. Copy `target/takeover/proof.json`, `target/takeover/proof.store.json` and
+   `target/takeover/proof.browser.json` back. Keep them together. Load the browser
+   bundle in the site's **Send a proof update** panel, choose a confirmed fee coin,
+   then build and sign with Humid. If a claim changed the Liquid state, run
+   `just proof-bundle` on the original machine and reload the bundle. If a newer
+   update made the proof stale, follow `just status <deposit number>` instead.
+
+Moving proof generation does not give that machine spending authority.
 
 After a killed run, `proof.store.json` may already exist: it is written before
 proving, and is not evidence that a proof finished. A retry can replace that store;
@@ -156,24 +157,46 @@ just broadcast target/takeover/fee-claim.hex && just wait <split txid>
 just claim <deposit number> && just broadcast target/takeover/claim.signed.hex
 ```
 
-To have Humid pay for and send the **update**, run `just deps tools`, `just prover check-elf`, then `just inputs execute prove` as above. This route does not need `LIQUID_FEE_KEY` or `just fee-key-new` for the update. In Humid, send 12,000 sats of tL-BTC to its own Receive → Unconfidential address and wait for that open coin to confirm. Identify its transaction ID and output number on a Liquid testnet explorer. Then use that coin instead of the fee-key split and signing steps above:
+### Build and send with Humid
+
+For an **update**, run `just deps tools prover check-elf`, then `just inputs execute prove`.
+Load `target/takeover/proof.browser.json` in the site's **Send a proof update** panel.
+For a **claim**, open **Claim a proven deposit** and enter its deposit number; no local
+tools or new proof are needed. The page reads Sepolia through your connected wallet
+or the RPC set in Settings.
+
+Both panels can find or prepare a confirmed, unconfidential tL-BTC fee coin. Each
+update or claim spends that entire coin, up to 50,000 sats. Preparing a new fee coin
+is a separate Humid transaction that must confirm first. The page builds and checks
+the covenant transaction; Humid signs only input 1, the fee coin, then broadcasts.
+The claim pays the Liquid recipient committed by the deposit. Other deposits do
+not have to be claimed first.
+
+The proof bundle includes the successor store. Keep and share it, or publish
+`lc_stores/<head>.json` and its `lc_preimages.json` entry for the next prover.
+Publication is optional for Humid; uploading a bundle here does not publish it.
+Without the store, another prover needs retained beacon data or saved proof inputs
+to reconstruct it. Recovery may fail if those sources are unavailable. The page
+checks the store's declared head and roots; the prover recomputes its CBOR roots.
+
+#### Optional CLI transaction assembly
+
+To build the unsigned transaction locally, use a confirmed fee coin at Humid's
+Receive → Unconfidential address:
 
 ```sh
-just update-unsigned <Humid fee txid> <output number>  # checks the proof and builds target/takeover/update.hex
-just txid target/takeover/update.hex                   # the ID does not change when Humid signs
-just stage-store unsigned                           # optional: prepares the store files for publication
+just update-unsigned <Humid fee txid> <output number>
+just stage-store unsigned  # optional publication preparation for this update
+
+# Or claim a proven, unclaimed deposit:
+just claim-unsigned <Humid fee txid> <output number> <deposit number>
 ```
 
-Open the published site's **Send a proven update with Humid** panel and load `target/takeover/update.hex`. If you published the staged `lc_stores/<head>.json` and `lc_preimages.json` in this site's instance record, read them back first. Otherwise, also load `target/takeover/proof.store.json` in that panel. You can skip `stage-store` and publication entirely for this Humid send; no merged pull request is required. The page checks the update's leaf, the store's declared head and roots, and the unspent inputs, then asks Humid to sign **only input 1**, the fee coin, and broadcast. Uploading the store here does not publish it: share or publish it for the next prover, or that prover may need to reconstruct it from retained Beacon data. The browser does not recompute the store's CBOR roots; the prover does. The local `just broadcast` recipe is for an already signed transaction and refuses `update.hex`. A claim can go through Humid as well (below); the fee-key route for claims needs `just fee-key-new`.
-
-To have Humid pay for and send a **claim** of a proven deposit, no prover or fee key is needed: `just deps tools` and `SEPOLIA_EXECUTION_RPC` are enough. Run `just status <deposit number>` first: it says whether that deposit is proven and unclaimed. Other deposits do not have to be claimed first. In Humid, send tL-BTC to its own Receive → Unconfidential address and wait for that open coin to confirm. About 2,000 sats is enough; use a fee appropriate at submission time, no more than this page's 50,000-sat limit. The claim spends the whole fee coin. Identify its transaction ID and output number on a Liquid testnet explorer, then:
-
-```sh
-just claim-unsigned <Humid fee txid> <output number> <deposit number>  # builds target/takeover/claim.hex
-just txid target/takeover/claim.hex                    # the ID does not change when Humid signs
-```
-
-Open the site's **Claim a proven deposit with Humid** panel and load `target/takeover/claim.hex`. This route exists only for the instance the published site serves: `update-unsigned` and `claim-unsigned` refuse any other `BRIDGE_INSTANCE` before reading the network. Nothing has to be published first: a claim moves no light-client store. The page checks the claim against the served record's `manifest.json`: the claim leaf, bridge asset and entropy, token in both phases, reissued units paid openly to a standard script, and its whole fee coin as the fee, at most 50,000 sats. It also checks that Liquid does not know the claim and its state and fee outputs are confirmed and unspent. It then asks Humid to sign **only input 1**, the fee coin, and broadcast, and requires Humid's txid to be the claim's. `just broadcast` refuses `claim.hex`. After it confirms, run `just status <deposit number>` again.
+Under the matching panel, open **Import a transaction built elsewhere** and load
+`target/takeover/update.hex` or `target/takeover/claim.hex`. For an update, also load
+`target/takeover/proof.store.json` unless the site already publishes that store.
+These recipes work only for the instance served by the site. `just broadcast`
+refuses these unsigned files; sign and send them with Humid in the page.
 
 Use an execution RPC that serves and verifies the finalized block's `eth_getProof`: some public providers are stale, outside their proof window, or return a proof with the wrong state root. When no store is published for the live head, `just inputs` refuses and names `just reconstruct` (next section).
 

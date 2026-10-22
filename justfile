@@ -621,8 +621,8 @@ status deposit='': recover deposits
                   f"with about {os.environ['FEE_CLAIM_SATS']} sats of Liquid fee")
     if claimable and served:
         target = int(mine) if mine and int(mine) in claimable else claimable[0]
-        print(f"next: claim deposit #{target}: with Humid, just claim-unsigned <fee txid> <vout> {target}, then load "
-              f"{work}/claim.hex in the site's Claim panel; or use the fee-key path: just split claim <txid> <vout>, "
+        print(f"next: open the published site's Claim a proven deposit panel, enter {target}, choose a confirmed fee coin, "
+              f"then build and sign with Humid. No CLI claim is needed. Optional fee-key path: just split claim <txid> <vout>, "
               f"just broadcast {work}/fee-claim.hex, just wait <its txid>, just claim {target}")
     elif claimable:
         target = int(mine) if mine and int(mine) in claimable else claimable[0]
@@ -897,7 +897,7 @@ update-unsigned txid vout: (_humid-site "update") recover
     id=$(txid_of "$w/update.hex")
     meta "$w/update.hex" kind=update-unsigned txid="$id" state="$st_id" parents="$st_id,$txid" new_state="$w/update.new_state.json"
     echo "unsigned update $id to head $(jget "$w/update.new_state.json" head)"
-    echo "next: load $w/update.hex and $w/proof.store.json into the page's Humid update panel"
+    echo "next: open Send a proof update > Import a transaction built elsewhere; load $w/update.hex and $w/proof.store.json"
     echo "publication is optional for Humid; share the store with the next prover, or prepare it for publication with just stage-store unsigned"
 
 # Prepare store files for publication. Optional for Humid; required before just broadcast of a signed update.
@@ -1079,7 +1079,7 @@ claim-unsigned txid vout deposit: (_humid-site "claim") recover deposits
     id=$(txid_of "$w/claim.hex")
     meta "$w/claim.hex" kind=claim-unsigned txid="$id" state="$st_id" parents="$st_id,$txid"
     echo "unsigned claim $id of deposit #$deposit to escrow $(escrow)"
-    echo "next: load $w/claim.hex into the published site's \"Claim a proven deposit with Humid\" panel"
+    echo "next: open Claim a proven deposit > Import a transaction built elsewhere; load $w/claim.hex"
 
 # Run every check `broadcast` makes, without sending: recipe sidecar, parents confirmed, inputs unspent, update store published.
 [group('read')]
@@ -1091,8 +1091,8 @@ preflight file:
     m="$file.meta.json"; kind=$(jget "$m" kind)
     case "$kind" in
       split|update|claim|bootstrap) ;;
-      update-unsigned) die "$file has no fee signature; load it and $BRIDGE_WORK/proof.store.json into the site's Humid update panel; publication is optional there" ;;
-      claim-unsigned) die "$file has no fee signature; load it into the published site's Claim a proven deposit with Humid panel" ;;
+      update-unsigned) die "$file has no fee signature; import it under Send a proof update and load $BRIDGE_WORK/proof.store.json; publication is optional there" ;;
+      claim-unsigned) die "$file has no fee signature; import it under Claim a proven deposit" ;;
       *) die "$file.meta.json names unsupported transaction kind $kind" ;;
     esac
     id=$(jget "$m" txid); state=$(jget "$m" state)
