@@ -4,6 +4,8 @@ The interface is built from `ui/` into a static page: it holds no key and runs n
 
 The instance is `instances/sepolia-liquid-testnet/`: one escrow on Sepolia, one confirmed bootstrap on Liquid testnet, linked by their asset ID. Its record holds the deployment parameters and public state needed by the page and the recipes below.
 
+For a deposit sent to another escrow, find its record and matching tools in the [deployment history](https://github.com/BlockstreamResearch/zk-bridge/commits/master/instances/). Match the record's escrow to the deposit transaction before using that revision.
+
 An instance's update leaf is fixed at its bootstrap, and its manifest names the generator that compiled it (`update_leaf.generator`). `assemble.py bootstrap`, `update` and `export-proof` build only for leaves of the generator this checkout pins (`tools/sg16/sg16/ref.py`), loaded from a clean `vendor/simple-groth16` at that commit, whose rehearsed budget covers their cost ([gates](tools/sg16/bridge-guest/testnet/README.md#gates)). A manifest without that field, such as one compiled by simple-groth16 `4f787ea` with padding blocks (`update_leaf.pad_blocks`), is updated only from a checkout that pins its generator, for example `3e655ae`. Claims, redemptions, recovery and bootstrap verification do not use the generator and work from this checkout for any instance.
 
 ## Services
