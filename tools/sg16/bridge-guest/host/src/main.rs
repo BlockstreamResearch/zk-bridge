@@ -2,12 +2,13 @@
 //!
 //!   SEPOLIA_CONSENSUS_RPC=... SEPOLIA_EXECUTION_RPC=... \
 //!   sg16-bridge-host inputs (--anchor-slot <slot> | --store <store.json> --lc <0x32 bytes>) --escrow <0x address>
-//!                           [--slot-key <0x32 bytes>] --out <inputs.cbor>
+//!                           [--slot-key <0x32 bytes>] --out <inputs.cbor> [--all-updates]
 //!       Start from the light-client store the Liquid state's lc commits to: with --anchor-slot, a Helios bootstrap
 //!       of the finalized checkpoint of <slot> from the consensus RPC; with --store, a published store file (below),
 //!       refused unless it hashes to --lc, the lc recovered from Liquid.  Then fetch sync-committee updates and the
-//!       latest finality update, attach the Gloas execution header if needed, and fetch the escrow's account and
-//!       slot proofs at the finalized execution block.  Read-only RPC.  Sepolia is enforced: chain id 11155111 on
+//!       latest finality update, keep only the updates the proof needs (src/sequence.rs; --all-updates keeps every
+//!       one), attach the Gloas execution header if needed, and fetch the escrow's account and slot proofs at the
+//!       finalized execution block.  Read-only RPC.  Sepolia is enforced: chain id 11155111 on
 //!       the execution RPC, and the genesis validators root must agree between the helios network config, the
 //!       consensus RPC's /eth/v1/beacon/genesis and sg16-bridge-core.  RPC URLs come only from the environment
 //!       and are never printed or written.
@@ -23,6 +24,13 @@
 //!       one slot of a multi-slot input (its account proof stays valid).  Inputs for another network are refused
 //!       unless --allow-non-sepolia, and the artifact then says "not-sepolia".  Also writes the successor store
 //!       file beside <out.json> as <out>.store.json: the store the next proof starts from.
+//!
+//!   sg16-bridge-host minimize <inputs.cbor> --out <new.cbor> [--allow-non-sepolia]
+//!       Saved inputs with only the sync-committee updates their proof needs, offline (src/sequence.rs): updates
+//!       dropped, in order, while the guest's store still ends with the same finalized header and committee, so
+//!       the same public values.  An unneeded update costs about 24 M guest cycles.  Refused if the inputs' updates
+//!       do not verify; writes only a new file, never the input or another existing file.  For example:
+//!       sg16-bridge-host minimize target/takeover/inputs.cbor --out target/takeover/inputs.min.cbor
 //!
 //!   sg16-bridge-host store <inputs.cbor> --out <store.json>
 //!       The successor store file of Sepolia inputs, without executing the guest or any RPC: the inputs' updates
@@ -57,8 +65,10 @@
 use alloy_primitives::{Address, B256};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use helios_consensus_core::{
-    apply_finality_update, apply_update, consensus_spec::MainnetConsensusSpec,
-    types::LightClientStore, verify_finality_update, verify_update,
+    apply_finality_update, apply_update,
+    consensus_spec::MainnetConsensusSpec,
+    types::{LightClientHeader, LightClientStore, Update},
+    verify_finality_update, verify_update,
 };
 use helios_ethereum::config::{networks::Network, Config};
 use helios_ethereum::consensus::Inner;
@@ -69,11 +79,13 @@ use sg16_bridge_core::{
 use sp1_helios_primitives::types::ProofInputs;
 use sp1_helios_script::execution::{fill_execution_header, ExecutionRpc};
 use sp1_sdk::{Elf, HashableKey, ProveRequest, Prover, ProverClient, ProvingKey, SP1Stdin};
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 
 mod reconstruct;
+mod sequence;
 
 type Store = LightClientStore<MainnetConsensusSpec>;
 
@@ -161,9 +173,17 @@ fn anchor_of(inputs: &ProofInputs) -> Result<Anchor> {
 /// guest applies them: the store whose lc the proof commits as new_lc, and the next proof's starting store.  Its
 /// next sync committee is dropped, as the guest drops the prover-supplied one.
 fn successor_store(inputs: &ProofInputs) -> Result<Store> {
+    successor_after(inputs, &inputs.updates)
+}
+
+/// `successor_store` with `updates` in place of the inputs' own (borrowed: selection tries many orders of them).
+fn successor_after<'a>(
+    inputs: &ProofInputs,
+    updates: impl IntoIterator<Item = &'a Update<MainnetConsensusSpec>>,
+) -> Result<Store> {
     let mut store = inputs.store.clone();
     store.next_sync_committee = None;
-    for update in &inputs.updates {
+    for update in updates {
         verify_update(
             update,
             inputs.expected_current_slot,
@@ -185,6 +205,30 @@ fn successor_store(inputs: &ProofInputs) -> Result<Store> {
     apply_finality_update(&mut store, &inputs.finality_update);
     store.next_sync_committee = None;
     Ok(store)
+}
+
+/// What the guest's public values are computed from, for `updates`: the finalized light-client header (its
+/// slot and root give new_head and new_lc, and it fixes the execution header and so the state root) and the root
+/// of the current sync committee (new_lc).  Everything else the guest commits comes from inputs no update changes.
+fn light_client_outcome<'a>(
+    inputs: &ProofInputs,
+    updates: impl IntoIterator<Item = &'a Update<MainnetConsensusSpec>>,
+) -> Result<(LightClientHeader, B256)> {
+    let store = successor_after(inputs, updates)?;
+    Ok((
+        store.finalized_header.clone(),
+        store.current_sync_committee.tree_hash_root(),
+    ))
+}
+
+/// The inputs' updates the proof needs (src/sequence.rs): in order, with the outcome all of them give the guest,
+/// so the same public values, and none of them droppable alone.  Refused if all of them do not verify.  Each trial
+/// borrows the updates it replays; only the kept ones are copied, once.
+fn minimal_updates(inputs: &ProofInputs) -> Result<Vec<Update<MainnetConsensusSpec>>> {
+    let kept = sequence::minimal(inputs.updates.len(), |kept| {
+        light_client_outcome(inputs, kept.iter().map(|&i| &inputs.updates[i]))
+    })?;
+    Ok(kept.iter().map(|&i| inputs.updates[i].clone()).collect())
 }
 
 const STORE_ABOUT: &str =
@@ -469,6 +513,14 @@ async fn inputs_cmd(args: &[String]) -> Result<()> {
         inputs.store.finalized_header.beacon().slot == anchor_slot,
         "the starting store is not at the anchor slot"
     );
+    // Only the updates the proof needs: the same public values for fewer guest cycles (src/sequence.rs).
+    let fetched = inputs.updates.len();
+    if !has(args, "--all-updates") {
+        inputs.updates = minimal_updates(&inputs).context(
+            "the sync-committee updates and finality update the consensus RPC served do not verify from the \
+             starting store (the cause follows)",
+        )?;
+    }
     // Verifies the whole update sequence on the host first (same functions as the guest), checkpoint and advance.
     // fill_execution_header (vendor/sp1-helios/script/src/execution.rs) also refuses a finalized header that is not at
     // an epoch's first slot, as the guest does: when that slot was missed no proof can exist for this update.
@@ -490,6 +542,7 @@ async fn inputs_cmd(args: &[String]) -> Result<()> {
     std::fs::write(&out, serde_cbor::to_vec(&inputs)?)?;
     let a = anchor_of(&inputs)?;
     let mut s = summary(&inputs, &a);
+    s["committee_updates"] = serde_json::json!({"fetched": fetched, "kept": inputs.updates.len()});
     s["finalized"] = serde_json::json!({
         "slot": target,
         "execution_block_number": fields.block_number,
@@ -539,6 +592,17 @@ async fn run_cmd(args: &[String]) -> Result<()> {
         inputs.contract_storage.len()
     );
     let a = anchor_of(&inputs)?;
+    // Inputs saved before `inputs` dropped unneeded updates: say so, and run them as given.
+    if let Ok(kept) = minimal_updates(&inputs) {
+        if kept.len() < inputs.updates.len() {
+            eprintln!(
+                "note: {} of the {} sync-committee updates are not needed for the same public values, about \
+                 24 M guest cycles each; sg16-bridge-host minimize <inputs> --out <new file> drops them",
+                inputs.updates.len() - kept.len(),
+                inputs.updates.len()
+            );
+        }
+    }
     let cbor = serde_cbor::to_vec(&inputs)?;
     let elf_bytes: &'static [u8] = Box::leak(
         std::fs::read(&elf_path)
@@ -652,6 +716,51 @@ async fn run_cmd(args: &[String]) -> Result<()> {
         );
     }
     std::fs::write(&pos[1], serde_json::to_vec_pretty(&artifact)?)?;
+    Ok(())
+}
+
+/// Rewrite saved inputs with only the updates their proof needs (minimal_updates), offline.
+fn minimize_cmd(args: &[String]) -> Result<()> {
+    let pos = positional(args);
+    ensure!(
+        pos.len() == 1,
+        "usage: minimize <inputs.cbor> --out <inputs.cbor> [--allow-non-sepolia]"
+    );
+    let out = flag(args, "--out").context("--out <inputs.cbor>")?;
+    let mut inputs: ProofInputs =
+        serde_cbor::from_slice(&std::fs::read(&pos[0])?).context("decode ProofInputs")?;
+    ensure!(
+        inputs.genesis_root.0 == SEPOLIA_GENESIS_VALIDATORS_ROOT || has(args, "--allow-non-sepolia"),
+        "inputs are for genesis validators root {}, not Sepolia; pass --allow-non-sepolia to rewrite them as a test",
+        inputs.genesis_root
+    );
+    let before = light_client_outcome(&inputs, &inputs.updates)
+        .context("the inputs' updates do not verify")?;
+    let fetched = inputs.updates.len();
+    inputs.updates = minimal_updates(&inputs)?;
+    ensure!(
+        light_client_outcome(&inputs, &inputs.updates)? == before,
+        "the kept updates do not give the guest the same outcome"
+    );
+    let bytes = serde_cbor::to_vec(&inputs)?;
+    // A new file only: never the input, nor any other existing file (the full inputs stay as they were).
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&out)
+        .with_context(|| format!("{out}: minimize writes a new file and never replaces one"))?
+        .write_all(&bytes)?;
+    let (head, header, committee) = store_roots(&successor_store(&inputs)?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "committee_updates": {"before": fetched, "kept": inputs.updates.len()},
+            "successor": {"head": head, "header": hx(&header.0), "committee": hx(&committee.0),
+                          "lc": hx(&lc(head, &header.0, &committee.0))},
+            "bytes": bytes.len(),
+            "out": out,
+        }))?
+    );
     Ok(())
 }
 
@@ -839,11 +948,12 @@ async fn run_command() -> Result<()> {
         }
         Some("run") => run_cmd(&args[1..]).await,
         Some("store") => store_cmd(&args[1..]),
+        Some("minimize") => minimize_cmd(&args[1..]),
         Some("reconstruct") => reconstruct_cmd(&args[1..]).await,
         Some("check-store") => check_store_cmd(&args[1..]),
         Some("vkey") => vkey_cmd(&args[1..]).await,
         _ => bail!(
-            "usage: sg16-bridge-host inputs|anchor|run|store|reconstruct|check-store|vkey ... \
+            "usage: sg16-bridge-host inputs|anchor|run|store|minimize|reconstruct|check-store|vkey ... \
              (see the source header)"
         ),
     }
@@ -957,5 +1067,146 @@ mod tests {
             ])),
             Vec::<String>::new()
         );
+    }
+
+    fn read_inputs(path: &Path) -> ProofInputs {
+        serde_cbor::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    fn cbor(update: &Update<MainnetConsensusSpec>) -> Vec<u8> {
+        serde_cbor::to_vec(update).unwrap()
+    }
+
+    /// minimal_updates on real inputs, with the real Helios verification: the same outcome as every update, an
+    /// order-preserving selection of them, and no kept update that could go.
+    fn check_minimal(inputs: &ProofInputs) -> Vec<Update<MainnetConsensusSpec>> {
+        let full = light_client_outcome(inputs, &inputs.updates).unwrap();
+        let kept = minimal_updates(inputs).unwrap();
+        assert_eq!(light_client_outcome(inputs, &kept).unwrap(), full);
+        let mut fetched = inputs.updates.iter().map(cbor);
+        assert!(kept.iter().map(cbor).all(|k| fetched.any(|u| u == k)));
+        for i in 0..kept.len() {
+            let mut less = kept.clone();
+            less.remove(i);
+            assert!(light_client_outcome(inputs, &less).ok() != Some(full.clone()));
+        }
+        kept
+    }
+
+    #[test]
+    fn real_inputs_keep_only_the_updates_their_outcome_needs() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../vendor/sp1-helios/script/tests/fixtures");
+        for name in [
+            "proof_inputs.cbor",
+            "gloas_current.cbor",
+            "gloas_transition.cbor",
+        ] {
+            let inputs = read_inputs(&dir.join(name));
+            let kept = check_minimal(&inputs);
+            eprintln!(
+                "{name}: {} of {} updates kept",
+                kept.len(),
+                inputs.updates.len()
+            );
+
+            // Inputs that do not verify are refused, never repaired by dropping updates (missing and reordered
+            // transition updates: the period-1389 fixture below).
+            let mut stale = read_inputs(&dir.join(name));
+            stale.expected_current_slot = 0; // no update or finality update can be signed before it
+            assert!(
+                minimal_updates(&stale).is_err(),
+                "{name}: impossible timing"
+            );
+        }
+    }
+
+    /// Public Sepolia inputs, unedited (src/reconstruct.rs tests): the store at 11385472 in sync-committee period
+    /// 1389, the light-client updates of periods 1389 and 1390, and a finality update to 11388896 signed in 1390.
+    const TRANSITION: &[u8] = include_bytes!("../tests/fixtures/inputs-11385472-11388896.cbor");
+
+    fn transition() -> ProofInputs {
+        serde_cbor::from_slice(TRANSITION).unwrap()
+    }
+
+    fn period(slot: u64) -> u64 {
+        helios_consensus_core::calc_sync_period::<MainnetConsensusSpec>(slot)
+    }
+
+    #[test]
+    fn a_period_transition_keeps_the_update_that_brings_the_next_committee() {
+        let inputs = transition();
+        assert_eq!(period(inputs.store.finalized_header.beacon().slot), 1389);
+        assert_eq!(period(*inputs.finality_update.signature_slot()), 1390);
+        let periods: Vec<u64> = inputs
+            .updates
+            .iter()
+            .map(|u| period(*u.signature_slot()))
+            .collect();
+        assert_eq!(periods, [1389, 1390]);
+        // The period-1389 update carries committee 1390, which signs the finality update; the period-1390 update
+        // is not needed, and the store still ends with committee 1390 at 11388896.
+        let kept = check_minimal(&inputs);
+        assert_eq!(
+            kept.iter().map(cbor).collect::<Vec<_>>(),
+            [cbor(&inputs.updates[0])]
+        );
+        let (head, _, committee) = store_roots(&successor_after(&inputs, &kept).unwrap());
+        assert_eq!(head, 11388896);
+        assert_eq!(committee, store_roots(&successor_store(&inputs).unwrap()).2);
+    }
+
+    #[test]
+    fn a_period_transition_without_its_update_is_refused_not_repaired() {
+        // Helios's own refusals: a period-1390 signature needs the next committee, which only the period-1389
+        // update brings, and that update must come first.  The guest would fail on each, and so does selection.
+        for (case, order) in [
+            ("no updates", Vec::<usize>::new()),
+            ("only the period-1390 update", vec![1]),
+            ("the two updates reordered", vec![1, 0]),
+        ] {
+            let mut inputs = transition();
+            inputs.updates = order
+                .iter()
+                .map(|&i| transition().updates[i].clone())
+                .collect();
+            assert!(
+                successor_store(&inputs).is_err(),
+                "{case}: the guest's steps"
+            );
+            assert!(minimal_updates(&inputs).is_err(), "{case}: selection");
+        }
+        let mut stale = transition();
+        stale.expected_current_slot = 0;
+        assert!(minimal_updates(&stale).is_err(), "impossible timing");
+    }
+
+    #[test]
+    fn minimize_writes_a_new_file_and_never_replaces_one() {
+        let dir = std::env::temp_dir().join(format!("sg16-minimize-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (input, out) = (dir.join("inputs.cbor"), dir.join("inputs.min.cbor"));
+        std::fs::write(&input, TRANSITION).unwrap();
+        let args = |a: &[&Path]| {
+            vec![
+                a[0].display().to_string(),
+                "--out".to_string(),
+                a[1].display().to_string(),
+            ]
+        };
+        minimize_cmd(&args(&[input.as_path(), out.as_path()])).unwrap();
+        let written = read_inputs(&out);
+        assert_eq!(written.updates.len(), 1);
+        assert_eq!(
+            light_client_outcome(&written, &written.updates).unwrap(),
+            light_client_outcome(&transition(), &transition().updates).unwrap()
+        );
+        // Not over the input, and not over an earlier result.
+        let minimized = std::fs::read(&out).unwrap();
+        assert!(minimize_cmd(&args(&[input.as_path(), input.as_path()])).is_err());
+        assert!(minimize_cmd(&args(&[input.as_path(), out.as_path()])).is_err());
+        assert_eq!(std::fs::read(&input).unwrap(), TRANSITION);
+        assert_eq!(std::fs::read(&out).unwrap(), minimized);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
