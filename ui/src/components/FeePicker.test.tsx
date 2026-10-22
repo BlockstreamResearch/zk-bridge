@@ -38,7 +38,7 @@ async function openPreparation(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('fee picker', () => {
-  it.each([['claim', '2000'], ['update', '10000']] as const)('requires the %s starting fee before discovery or preparation', async (kind, minimum) => {
+  it.each([['claim', '2000'], ['update', '2000']] as const)('requires the %s starting fee before discovery or preparation', async (kind, minimum) => {
     const { user, find, prepare } = setup(false, 0, false, kind);
     const button = await openPreparation(user);
     await user.click(screen.getByRole('checkbox'));

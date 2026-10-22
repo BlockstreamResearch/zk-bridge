@@ -4,6 +4,8 @@ The interface is built from `ui/` into a static page: it holds no key and runs n
 
 The instance is `instances/sepolia-liquid-testnet/`: one escrow on Sepolia, one confirmed bootstrap on Liquid testnet, linked by their asset ID. Its record holds the deployment parameters and public state needed by the page and the recipes below.
 
+An instance's update leaf is fixed at its bootstrap, and its manifest names the generator that compiled it (`update_leaf.generator`). `assemble.py bootstrap`, `update` and `export-proof` build only for leaves of the generator this checkout pins (`tools/sg16/sg16/ref.py`), loaded from a clean `vendor/simple-groth16` at that commit, whose rehearsed budget covers their cost ([gates](tools/sg16/bridge-guest/testnet/README.md#gates)). A manifest without that field, such as one compiled by simple-groth16 `4f787ea` with padding blocks (`update_leaf.pad_blocks`), is updated only from a checkout that pins its generator, for example `3e655ae`. Claims, redemptions, recovery and bootstrap verification do not use the generator and work from this checkout for any instance.
+
 ## Services
 
 | Service | Chain it writes | When | Tools | Without it |
@@ -22,7 +24,7 @@ The page never needs a server of its own. It reads Sepolia through the user's wa
 
 - A Sepolia execution RPC and a beacon node, passed as `SEPOLIA_EXECUTION_RPC` and `SEPOLIA_CONSENSUS_RPC`. Keep authenticated RPC URLs in a local protected secret store, never Git. `fork_proof.py` needs only standard beacon API endpoints: the light-client finality update, the genesis, and the fork of a recent state (`/eth/v1/beacon/states/{id}/fork`); it reads no debug state. `sg16-bridge-host inputs --store` needs execution proofs, the current finality update and the light-client update of every sync-committee period (about 27 hours each) since the slot the Liquid state last proved. It needs no bootstrap. Under the Gloas block-serving formula the recommended window is 14,299 epochs, about 64 days at 12-second slots; individual Beacon APIs may retain less. If the state falls further behind than available updates, an archive is needed.
 - A Sepolia key with SepETH for gas, in an encrypted keystore that `cast` reads. Keep both keystore and RPC credentials outside Git. Build and test the escrow with `FOUNDRY_PROFILE=deploy` from `contracts/solidity/`; its optimizer settings are fixed in `contracts/solidity/foundry.toml`. Sepolia's gas schedule can change, so estimate each call against Sepolia itself rather than a local EVM.
-- A Liquid testnet key file for fee inputs: `tools/sg16/liquid-testnet-wallet new <file>` writes it with mode 0600. Keep it under the ignored `target/` or outside the repository. The recipes reserve 12,000 sats for an update and 2,000 for a claim (`FEE_UPDATE_SATS`, `FEE_CLAIM_SATS`); the builders refuse a fee input above 100 times the relay floor.
+- A Liquid testnet key file for fee inputs: `tools/sg16/liquid-testnet-wallet new <file>` writes it with mode 0600. Keep it under the ignored `target/` or outside the repository. The recipes reserve 2,000 sats for an update and 2,000 for a claim (`FEE_UPDATE_SATS`, `FEE_CLAIM_SATS`); an update weighs about 59.1 kWU, a relay floor of 1,478 sats at 0.1 sat/vB. The builders refuse a fee input above max(100 times the relay floor, 50,000 sats) (`sg16-testnet` `fee_ceiling`).
 - The prover host: SP1 6.8.1, Docker, and the guest ELF whose SHA-256 and vkey are the instance file's `GUEST_ELF_SHA256` and `PROGRAM_VKEY` ([build](tools/sg16/README.md); `sg16-bridge-host vkey --elf` prints both).
 - The instance's files: its `instances/<name>/` directory (instance file, manifest, initial state, bootstrap, light-client preimages and store files). It also needs the record of the current state. `assemble.py recover` rebuilds that record from the public bootstrap, update and claim transactions ([recovery](tools/sg16/bridge-guest/testnet/README.md#recovering-the-state)). `assemble.py update` also writes its successor beside its transaction.
 
@@ -129,7 +131,7 @@ The commands are the operator's own, with the file names changed.
 - Rust with Cargo and a C/C++ build toolchain, Python 3.9 or later, Node.js 22 or later, `curl`, and `just` (the recipes were checked with 1.45.0).
 - A Sepolia execution RPC that serves `eth_getLogs`, `eth_call`, and, for a proof, `eth_getProof` at the finalized block. Keep RPC URLs with credentials out of Git and out of shared shell history.
 - **For a proof only:** a Sepolia beacon node (consensus RPC), running Docker, Go, and Protocol Buffers' `protoc` compiler. `just prover` installs the pinned SP1 6.8.1 CLI from source into `BRIDGE_WORK/sp1` when a matching CLI is not already available, then builds the host and guest. It does not replace a system SP1 installation. The first build can take considerably longer than later runs. No minimum machine is established.
-- tL-BTC for fees, in a key only you hold: about 12,000 sats per update and 2,000 sats per claim, plus 300 sats for each fee split below. Any Liquid testnet faucet that pays an unconfidential address will do.
+- tL-BTC for fees, in a key only you hold: about 2,000 sats per update and 2,000 sats per claim, plus 300 sats for each fee split below. Any Liquid testnet faucet that pays an unconfidential address will do.
 
 ### The same steps with `just`
 
@@ -287,7 +289,7 @@ LC=$(python3 -c 'import json; print(json.load(open("target/takeover/state.json")
 SEPOLIA_CONSENSUS_RPC=... SEPOLIA_EXECUTION_RPC=... $H inputs --store "$STORE" --lc $LC --escrow $ESCROW --out target/takeover/inputs.cbor
 $H run --elf $ELF target/takeover/inputs.cbor target/takeover/proof.json --prove     # also writes target/takeover/proof.store.json
 assemble check-artifact --instance $I/instance.json --artifact target/takeover/proof.json --state target/takeover/state.json
-$W split target/takeover/fee.key target/takeover/funding.hex <funding vout> 12000 300 target/takeover/fee-update.hex
+$W split target/takeover/fee.key target/takeover/funding.hex <funding vout> 2000 300 target/takeover/fee-update.hex
 ```
 
 Broadcast the split (below), wait for it to confirm, then build, sign and check the update:

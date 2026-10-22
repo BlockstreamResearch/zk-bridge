@@ -15,7 +15,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
   const s = useBridge();
   const id = useId();
   const [address, setAddress] = useState(s.redeemForm.humidAddress);
-  const [amount, setAmount] = useState(kind === 'update' ? '12000' : '2000');
+  const [amount, setAmount] = useState('2000');
   const [owned, setOwned] = useState(false);
   const [busy, setBusy] = useState(false);
   const [held, setHeld] = useState(false);
@@ -27,7 +27,8 @@ export function FeePicker({ kind, disabled, onCoin }: {
   const run = useRef(0);
   const working = useRef(false);
   const sats = /^\d+$/.test(amount) ? BigInt(amount) : 0n;
-  const minimum = kind === 'update' ? 10_000n : 2_000n;
+  // Above the 0.1 sat/vB relay floor of either spend: a claim weighs about 10.3 kWU, an update 59.1 kWU (1,478 sats).
+  const minimum = 2_000n;
   const validAmount = sats >= minimum && sats <= 50_000n;
   const valid = validAmount && address.trim().length > 0;
   const reservations = c.getFeeReservationStatus();

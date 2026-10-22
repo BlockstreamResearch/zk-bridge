@@ -40,7 +40,7 @@ LIQUID_FEE_KEY := env("LIQUID_FEE_KEY", "")
 # is an optional cross-check and must equal it. For any other instance, set it to the URL where you publish.
 STORE_READBACK_URL := env("STORE_READBACK_URL", "")
 # Fee slots and split fee, in sats: the costs recorded so far (OPERATOR.md), not minimums.
-FEE_UPDATE_SATS := env("FEE_UPDATE_SATS", "12000")
+FEE_UPDATE_SATS := env("FEE_UPDATE_SATS", "2000")
 FEE_CLAIM_SATS := env("FEE_CLAIM_SATS", "2000")
 SPLIT_FEE_SATS := env("SPLIT_FEE_SATS", "300")
 # Initial maximum; bridge-operator reduces it automatically when an RPC enforces a smaller eth_getLogs range.
