@@ -116,3 +116,125 @@ pub fn map(spec: &serde_json::Value) -> HashMap<Arc<str>, Value> {
 pub fn load(path: &str) -> HashMap<Arc<str>, Value> {
     map(&serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap())
 }
+
+/// Validate untrusted browser witness JSON before the trusted generator parser sees it.
+/// Bounded nesting and word widths prevent pathological allocations and recursive stack growth.
+pub fn try_map(spec: &serde_json::Value) -> Result<HashMap<Arc<str>, Value>, String> {
+    fn check(spec: &serde_json::Value, depth: usize, is_type: bool) -> Result<(), String> {
+        if depth > 64 {
+            return Err("witness nesting exceeds 64".into());
+        }
+        let o = spec.as_object().ok_or("witness value must be an object")?;
+        let child = |v, t| check(v, depth + 1, t);
+        if let Some(w) = o.get("w") {
+            if o.len() != 1 {
+                return Err("ambiguous witness word".into());
+            }
+            if is_type {
+                let bits = w.as_u64().ok_or("witness type width must be an integer")?;
+                if bits == 0 || !bits.is_power_of_two() || bits > 4096 {
+                    return Err("invalid witness type width".into());
+                }
+            } else {
+                let h = w.as_str().ok_or("witness word must be hex")?;
+                if h.is_empty()
+                    || h.len() > 1024
+                    || !h.len().is_power_of_two()
+                    || !h.bytes().all(|c| c.is_ascii_hexdigit())
+                {
+                    return Err("invalid witness hex word".into());
+                }
+            }
+        } else if let Some(p) = o.get("p") {
+            let p = p.as_array().ok_or("witness pair must be an array")?;
+            if o.len() != 1 || p.len() != 2 {
+                return Err("witness pair needs two values".into());
+            }
+            child(&p[0], is_type)?;
+            child(&p[1], is_type)?;
+        } else if is_type {
+            if o.len() != 1 {
+                return Err("invalid witness type".into());
+            }
+            child(o.get("opt").ok_or("unknown witness type")?, true)?;
+        } else if let Some(bit) = o.get("bit") {
+            if o.len() != 1 || !matches!(bit.as_u64(), Some(0 | 1)) {
+                return Err("witness bit must be 0 or 1".into());
+            }
+        } else {
+            let tags: Vec<_> = ["none", "some", "l", "r"]
+                .iter()
+                .filter(|k| o.contains_key(**k))
+                .collect();
+            if tags.len() != 1 {
+                return Err("unknown or ambiguous witness value".into());
+            }
+            let tag = *tags[0];
+            let sum = tag == "l" || tag == "r";
+            if o.len() != if sum { 2 } else { 1 } {
+                return Err("invalid witness injection".into());
+            }
+            child(&o[tag], tag == "none")?;
+            if sum {
+                child(o.get("t").ok_or("witness injection needs type")?, true)?;
+            }
+        }
+        Ok(())
+    }
+    let o = spec.as_object().ok_or("witness must be an object")?;
+    if o.len() > 128 {
+        return Err("too many witness names".into());
+    }
+    for v in o.values() {
+        check(v, 0, false)?;
+    }
+    Ok(map(spec))
+}
+
+#[cfg(test)]
+mod browser_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn checked_witness_accepts_generator_shapes() {
+        let spec = json!({"w_in": {"p": [
+            {"w": "0f"},
+            {"p": [{"bit": 1}, {"some": {"w": "f"}}]}
+        ]}});
+        assert_eq!(try_map(&spec).unwrap(), map(&spec));
+        for value in [
+            json!({"none": {"opt": {"w": 256}}}),
+            json!({"l": {"bit": 0}, "t": {"p": [{"w": 8}, {"w": 16}]}}),
+            json!({"r": {"bit": 1}, "t": {"w": 2}}),
+        ] {
+            assert!(try_map(&json!({"w_in": value})).is_ok());
+        }
+    }
+
+    #[test]
+    fn checked_witness_refuses_bad_shapes_without_panicking() {
+        for value in [
+            json!(null),
+            json!({"w": ""}),
+            json!({"w": "xyz"}),
+            json!({"w": "fff"}),
+            json!({"bit": 2}),
+            json!({"bit": -1}),
+            json!({"p": []}),
+            json!({"p": [{"bit": 0}]}),
+            json!({"none": {"w": 0}}),
+            json!({"none": {"w": 3}}),
+            json!({"l": {"bit": 1}}),
+            json!({"w": "ff", "bit": 0}),
+            json!({"some": {"bit": 1}, "none": {"w": 8}}),
+        ] {
+            assert!(try_map(&json!({"w_in": value})).is_err(), "{value}");
+        }
+        let mut deep = json!({"bit": 1});
+        for _ in 0..66 {
+            deep = json!({"some": deep});
+        }
+        assert!(try_map(&json!({"w_in": deep})).is_err());
+    }
+}

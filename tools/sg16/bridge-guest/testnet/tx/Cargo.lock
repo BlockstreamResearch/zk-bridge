@@ -508,9 +508,11 @@ dependencies = [
 name = "sg16-testnet-tx"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "serde_json",
  "sg16-harness",
  "simplicity-lang",
+ "wasm-bindgen",
 ]
 
 [[package]]
