@@ -61,9 +61,8 @@
 //! A manifest that is not `deployable` (dry run, stand-in leaf) is refused by bootstrap and update unless
 //! --local-test is given; their reports then carry "local_test_only": true.
 //!
-//! Malformed operator input (hex, JSON fields, manifest configuration, transactions) fails as a gate.  The
-//! generated program and witness files are read with tools/sg16-harness loaders, which panic on malformed
-//! content: they are assemble.py outputs, and a panic there exits nonzero without writing a transaction.
+//! Malformed input (hex, JSON fields, manifest configuration, transactions, programs and witnesses)
+//! fails before a transaction is written. The browser API returns these failures as JavaScript errors.
 use serde_json::{json, Value as Json};
 use sg16_harness::bridge::{
     self, asset_bytes, asset_of, conf_parts, issuance, out_witness, stack_bytes, tagged, tap,

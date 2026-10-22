@@ -22,6 +22,7 @@ interface CommonArgs {
   feeVout: number;
   from?: LiveState | null;
   progress?: (message: string) => void;
+  signal?: AbortSignal;
 }
 
 // These core functions are public JS exports; the original send-only declaration file predates their use here.
@@ -40,6 +41,10 @@ const MAX_TX_HEX = 8 * 1024 * 1024;
 const MAX_COMPILED_HEX = 8 * 1024 * 1024;
 const LIQUID_GENESIS = 'a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1';
 type ObjectValue = Record<string, unknown>;
+
+function active(args: CommonArgs): void {
+  if (args.signal?.aborted) throw new Error('Build cancelled');
+}
 
 function object(value: unknown, name: string): ObjectValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} must be an object.`);
@@ -112,6 +117,7 @@ async function unspent(esplora: Esplora, txid: string, vout: number, name: strin
 }
 
 async function prepareCommon(args: CommonArgs) {
+  active(args);
   const { instance, esplora, readRecord, readEth, feeTxid, feeVout, from, progress = () => {} } = args;
   word(feeTxid, 'Fee transaction ID');
   integer(feeVout, 'Fee output number', 0x3fffffff);
@@ -120,6 +126,7 @@ async function prepareCommon(args: CommonArgs) {
   const [manifest, pins, code] = await Promise.all([
     record(readRecord, 'manifest.json'), record(readRecord, 'instance.json'), readEth('eth_getCode', [instance.escrow, 'latest']),
   ]);
+  active(args);
   if (typeof code !== 'string' || !/^0x(?:[0-9a-f]{2})+$/i.test(code)) throw new Error('The escrow runtime code is unavailable.');
   same(bytesToHex(keccak256(hexToBytes(code))), instance.codeHash, 'Escrow runtime code');
   same(manifest.schema, 'liquid-bridge-poc/manifest', 'Manifest schema');
@@ -154,7 +161,8 @@ async function prepareCommon(args: CommonArgs) {
     feeAsset: hexToBytes(LIQUID_TESTNET_LBTC) });
   if (!boot.ok) throw new Error('The published bootstrap failed verification: ' + boot.checks.filter((c) => !c.ok).map((c) => c.text).join('; '));
   const live = await core.liveState({ esplora, manifest, bootstrap: instance.bootstrap, from,
-    progress: (n) => progress(`Following Liquid state transaction ${n}…`) });
+    progress: (n) => { active(args); progress(`Following Liquid state transaction ${n}…`); } });
+  active(args);
   if (live.moving) throw new Error('The bridge state has a pending spend. Wait for confirmation, then rebuild.');
   if (!live.state.claimed || !live.state.claimedRoot) throw new Error('The current claimed-deposit set could not be verified.');
   const state = stateRecord({ ...live.state, claimed: [...live.state.claimed].sort((a, b) => a - b),
@@ -171,8 +179,10 @@ async function prepareCommon(args: CommonArgs) {
     throw new Error('Use a confirmed, explicit tL-BTC fee coin at a Humid address, between 1 and 50,000 sats.');
   }
   const recheck = async () => {
+    active(args);
     same(quantity(await readEth('eth_chainId'), 'Ethereum chain'), Number(SEPOLIA_CHAIN_ID), 'Ethereum chain');
     await Promise.all([unspent(esplora, live.outpoint.txid, live.outpoint.vout, 'Bridge state'), unspent(esplora, feeTxid, feeVout, 'Fee coin')]);
+    active(args);
   };
   await recheck();
   return { manifest, pins, live, state, recheck, input: { manifest, state, state_tx_hex: current.hex,
@@ -191,6 +201,7 @@ async function depositLogs(args: CommonArgs, start: number, end: number): Promis
   const logs: ObjectValue[] = [];
   let next = start, window = 2048, requests = 0;
   while (next <= end) {
+    active(args);
     if (++requests > MAX_LOG_REQUESTS) throw new Error('Deposit history exceeds the bounded RPC scan. Use an RPC that accepts wider log ranges.');
     const last = Math.min(end, next + window - 1);
     args.progress?.(`Reading proven deposits, Sepolia blocks ${next} to ${last}…`);
@@ -199,11 +210,13 @@ async function depositLogs(args: CommonArgs, start: number, end: number): Promis
       answer = await args.readEth('eth_getLogs', [{ address: args.instance.escrow, topics: [DEPOSIT_TOPIC],
         fromBlock: '0x' + next.toString(16), toBlock: '0x' + last.toString(16) }]);
     } catch (error) {
+      active(args);
       const limit = rangeLimit(error);
       if (limit === null || window === 1 || (limit > 0 && last - next + 1 <= limit)) throw error;
       window = limit || Math.max(1, Math.floor((last - next + 1) / 2));
       continue;
     }
+    active(args);
     if (!Array.isArray(answer) || answer.length + logs.length > MAX_ENTRIES) throw new Error('Deposit logs are invalid or exceed 10,000 entries.');
     for (const value of answer) {
       const log = object(value, 'Deposit log');
@@ -265,6 +278,9 @@ function decodeDeposits(logs: ObjectValue[], escrow: string, domain: string, wan
 export async function prepareBrowserClaim(args: CommonArgs & { depositIndex: number }): Promise<Record<string, unknown>> {
   integer(args.depositIndex, 'Deposit index', 0xffffffff);
   const common = await prepareCommon(args);
+  if (common.live.state.execBlock === undefined) {
+    throw new Error('No deposits are proven on Liquid yet. Send a proof update first.');
+  }
   const end = integer(common.live.state.execBlock, 'Proven Sepolia execution block');
   const start = integer(common.pins.ESCROW_DEPLOY_BLOCK, 'Escrow deployment block');
   if (end < start) throw new Error('The current Liquid state has not proven any escrow deposits.');
@@ -315,5 +331,6 @@ export async function prepareBrowserUpdate(args: CommonArgs & { bundle: unknown 
   if (Object.keys(witness).length !== 1 || !Object.hasOwn(witness, 'w_in')) throw new Error('Proof witness must contain exactly w_in.');
   core.storeFile(JSON.stringify(bundle.successor_store), { head: next.head as number, lc: next.lc as string }, 'Proof successor store');
   await common.recheck();
-  return { ...common.input, state: old, program: bundle.program, witness, compiled_program: compiledProgram, new_state: next };
+  // The source remains in the bundle for review. Execution uses only its compiled form.
+  return { ...common.input, state: old, compiled_program: compiledProgram, new_state: next };
 }

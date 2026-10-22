@@ -10,7 +10,7 @@ use simplicity::{BitIter, BitMachine, Cmr, RedeemNode, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// A program in the human-readable encoding the generator writes, parsed once (slow for the full verifier).
+/// A parsed generator program or its canonically decoded form.
 pub enum Program {
     Text(Forest),
     Encoded(Arc<RedeemNode>),

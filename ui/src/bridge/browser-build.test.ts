@@ -161,6 +161,20 @@ describe('browser transaction input preparation', () => {
     expect(f.readEth.mock.calls.filter(([m]) => m === 'eth_getLogs')).toHaveLength(1);
   });
 
+  it('stops the RPC scan when the build is cancelled', async () => {
+    const f = setup(true), original = f.readEth.getMockImplementation()!;
+    const abort = new AbortController();
+    f.readEth.mockImplementation(async (method, params) => {
+      if (method === 'eth_getLogs') {
+        abort.abort();
+        throw new Error('eth_getLogs limited to a 10 block range');
+      }
+      return original(method, params);
+    });
+    await expect(prepareBrowserClaim({ ...f.args, signal: abort.signal, depositIndex: 0 })).rejects.toThrow('Build cancelled');
+    expect(f.readEth.mock.calls.filter(([method]) => method === 'eth_getLogs')).toHaveLength(1);
+  });
+
   it('does not scan deposits beyond the finalized head', async () => {
     const f = setup(true), original = f.readEth.getMockImplementation()!;
     f.readEth.mockImplementation((m, p) => m === 'eth_getBlockByNumber' ? Promise.resolve({ number: asHex(f.end - 1) }) : original(m, p));
@@ -188,8 +202,16 @@ describe('browser transaction input preparation', () => {
   it('binds an update bundle to current state, instance and exact program bytes', async () => {
     const f = setup();
     const input = await prepareBrowserUpdate({ ...f.args, bundle: f.bundle });
-    expect(input).toMatchObject({ program: PROGRAM, witness: { w_in: '0x00' }, compiled_program: f.bundle.compiled_program,
+    expect(input).toMatchObject({ compiled_program: f.bundle.compiled_program,
       state: f.bundle.state, new_state: f.bundle.new_state });
+    expect(input).not.toHaveProperty('program');
+    expect(input).not.toHaveProperty('witness');
+  });
+
+  it('explains that the initial state needs a proof before claiming', async () => {
+    const f = setup();
+    await expect(prepareBrowserClaim({ ...f.args, depositIndex: 0 })).rejects.toThrow('Send a proof update first');
+    expect(f.readEth.mock.calls.some(([method]) => method === 'eth_getLogs')).toBe(false);
   });
 
   it('requires a newly exported compiled proof bundle', async () => {
