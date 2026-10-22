@@ -19,7 +19,7 @@ const out = path.join(root, 'target/browser-ux/screens');
 const port = Number(process.env.BROWSER_CHECK_PORT ?? 4183);
 const base = `http://127.0.0.1:${port}/`;
 const json = (file) => JSON.parse(readFileSync(file, 'utf8'));
-const report = { status: 'running', builders: [], productionWorkers: [], screens: [], consoleErrors: [], externalRequests: [] };
+const report = { status: 'running', builders: [], preparedBuilders: [], productionWorkers: [], screens: [], consoleErrors: [], externalRequests: [] };
 mkdirSync(out, { recursive: true });
 const server = spawn(process.execPath, [path.join(ui, 'node_modules/vite/bin/vite.js'), '--mode', 'fixture', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: ui, stdio: 'pipe' });
 let serverLog = '';
@@ -39,6 +39,11 @@ function stable(hex) {
 }
 
 try {
+  if (!process.argv.includes('--screens-only')) {
+    execFileSync(process.execPath, [path.join(ui, 'node_modules/vitest/vitest.mjs'), 'run', 'src/bridge/browser-build.integration.test.ts'], {
+      cwd: ui, env: { ...process.env, BROWSER_PREPARATION_INTEGRATION: '1' }, stdio: 'inherit',
+    });
+  }
   for (let i = 0; ; i++) {
     if (server.exitCode !== null) throw new Error(`Vite exited: ${serverLog}`);
     try { if ((await fetch(base)).ok) break; } catch { /* Starting local Vite. */ }
@@ -114,6 +119,45 @@ try {
         nativeParity: true, nativeVerification: !!tool, uiTicks, rejection, cancellation: cancelled };
       report.builders.push(result);
       console.log(JSON.stringify(result));
+      // Consume the exact serialized result of the real preparation helper.
+      // The test harness replaces source data and liveState only; no builder input is rewritten here.
+      const prepared = json(path.join(fixtures, `${kind}-prepared-input.json`));
+      await evaluate(`window.preparedResult = undefined; window.preparedError = undefined;
+        window.preparedStarted = performance.now();
+        window.buildTransaction(${JSON.stringify(kind)}, ${JSON.stringify(prepared)}).then(result => {
+          window.preparedResult = result; window.preparedElapsed = Math.round(performance.now() - window.preparedStarted);
+        }, error => { window.preparedError = error.message; });`);
+      await waitFor('window.preparedResult || window.preparedError', 600_000);
+      assert.equal(await evaluate('window.preparedError'), undefined);
+      const preparedBuilt = await evaluate('window.preparedResult');
+      assert.equal(preparedBuilt.report.ok, true);
+      const preparedRaw = hexToBytes(preparedBuilt.raw_tx);
+      const preparedTx = parseTransaction(preparedRaw);
+      const nativeTx = parseTransaction(hexToBytes(built.raw_tx));
+      assert.equal(preparedBuilt.report.txid, displayHex(preparedTx.txid));
+      assert.deepEqual(preparedTx.inputs[0], nativeTx.inputs[0]);
+      assert.deepEqual(preparedTx.outputs[0].raw, nativeTx.outputs[0].raw);
+      assert.deepEqual(stable(preparedBuilt.raw_tx).inputs, stable(built.raw_tx).inputs);
+      assert.deepEqual(stable(preparedBuilt.raw_tx).ranges, stable(built.raw_tx).ranges);
+      if (kind === 'claim') assert.deepEqual(stable(preparedBuilt.raw_tx), stable(built.raw_tx));
+      else {
+        assert.equal(preparedTx.outputs.length, 2);
+        assert.equal(preparedTx.outputs[1].value.amount, 50_000n);
+        assert.equal(displayHex(preparedTx.inputs[1].prevTxid), displayHex(parseTransaction(hexToBytes(prepared.fee_tx_hex)).txid));
+        assert.equal(preparedTx.inputs[1].n, prepared.fee_vout);
+      }
+      const preparedOutput = path.join(fixtures, `${kind}-prepared-browser.hex`);
+      writeFileSync(preparedOutput, preparedBuilt.raw_tx);
+      if (tool) {
+        const preparedFee = path.join(fixtures, `${kind}-prepared-fee.hex`);
+        writeFileSync(preparedFee, prepared.fee_tx_hex);
+        assert.equal(JSON.parse(execFileSync(tool, ['verify', preparedOutput, '0', path.join(fixtures, `${kind}-state.hex`), preparedFee],
+          { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })).ok, true);
+      }
+      const preparedResult = { kind, milliseconds: await evaluate('window.preparedElapsed'), txid: preparedBuilt.report.txid,
+        actualPreparationOutput: true, nativeVerification: !!tool, feeSats: String(preparedTx.outputs.at(-1).value.amount) };
+      report.preparedBuilders.push(preparedResult);
+      console.log(`Prepared worker: ${JSON.stringify(preparedResult)}`);
     }
   }
   for (const [width, height] of [[1440, 1000], [390, 900]]) {
