@@ -12,6 +12,8 @@ which is only read. No network access; nothing is signed or sent.
   - `just deploy-asset`, with the bootstrap standing in for a funding transaction and Esplora and the fee key's
     wallet stood in, accepts the change output, explicit tL-BTC to the fee key, and refuses a confidential output,
     an output to another script and an output past the last, before anything is written
+  - `just chain` (under `just status`), with the same stand-in Esplora, reads the public bootstrap, says a failed
+    fetch (HTTP 429) is a failed fetch to retry, not a byte mismatch, and refuses a public bootstrap with other bytes
 """
 import importlib.util
 import json
@@ -34,10 +36,13 @@ BOOTSTRAP = INSTANCE / 'bootstrap.hex'
 TX_BIN = ROOT / 'tools' / 'sg16' / 'bridge-guest' / 'target' / 'testnet-tx' / 'release' / 'sg16-testnet'
 ESPLORA = 'https://esplora.invalid/api'
 
-# Esplora as deploy-asset reads it: FAKE_TX (one transaction, confirmed, every output unspent).
+# Esplora as deploy-asset and chain read it: FAKE_TX (one transaction, confirmed, every output unspent).  With
+# FAKE_CURL_FAIL set, every request fails as `curl -f` does on an HTTP error, such as Esplora's 429.
 FAKE_CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 url, esplora = sys.argv[-1], os.environ['LIQUID_ESPLORA'] + '/'
+if os.environ.get('FAKE_CURL_FAIL'):
+    sys.exit(f'curl: (22) The requested URL returned error: {os.environ["FAKE_CURL_FAIL"]}')
 tx = json.load(open(os.environ['FAKE_TX']))
 parts = url[len(esplora):].split('/') if url.startswith(esplora) else []
 if len(parts) < 3 or parts[:2] != ['tx', tx['txid']]:
@@ -206,6 +211,27 @@ class DeployAsset(Recipes):
                 self.assertIn(fragment, r.stderr)
                 self.assertNotIn('funding output:', r.stdout)
                 self.assertFalse((self.deploy / 'asset.json').exists())
+
+    def chain(self, **env):
+        return self.just('chain', env={**self.env, **env})
+
+    def test_chain_reads_the_public_bootstrap(self):
+        r = self.chain()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f'0 confirmed state spend(s) after bootstrap {self.txid}', r.stdout)
+
+    def test_chain_says_a_failed_fetch_is_not_a_mismatch(self):
+        r = self.chain(FAKE_CURL_FAIL='429')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(f'could not read the bootstrap {self.txid} from Esplora', r.stderr)
+        self.assertIn('retry in a minute', r.stderr)
+        self.assertNotIn('differs from', r.stderr)
+
+    def test_chain_refuses_a_public_bootstrap_with_other_bytes(self):
+        (self.tmp / 'tx.json').write_text(json.dumps({'txid': self.txid, 'hex': self.hex[:-2] + 'ff'}))
+        r = self.chain()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(f"Esplora's transaction {self.txid} differs from", r.stderr)
 
 
 if __name__ == '__main__':

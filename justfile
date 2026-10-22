@@ -511,7 +511,10 @@ chain:
     mkdir -p "$BRIDGE_WORK/tx"
     rm -f "$BRIDGE_WORK/spends.txt" "$BRIDGE_WORK/state-tx.path" "$BRIDGE_WORK/state-tx.txid"
     boot=$(txid_of "$BRIDGE_INSTANCE/bootstrap.hex") || die "the instance's bootstrap does not parse as an Elements transaction"
-    [ "$(esplora "tx/$boot/hex" | tr -d '[:space:]')" = "$(tr -d '[:space:]' < "$BRIDGE_INSTANCE/bootstrap.hex")" ] \
+    # Fetched before it is compared: a failed fetch (rate limit, outage) is not a mismatch.
+    public=$(esplora "tx/$boot/hex") \
+      || die "could not read the bootstrap $boot from Esplora ($LIQUID_ESPLORA); it may be rate-limiting, retry in a minute"
+    [ "$(printf '%s' "$public" | tr -d '[:space:]')" = "$(tr -d '[:space:]' < "$BRIDGE_INSTANCE/bootstrap.hex")" ] \
       || die "Esplora's transaction $boot differs from $BRIDGE_INSTANCE/bootstrap.hex"
     t=$boot; n=0; : > "$BRIDGE_WORK/spends.txt.part"
     while :; do
