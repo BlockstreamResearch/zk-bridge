@@ -718,7 +718,7 @@ export async function sendUpdate({ humid, esplora, plan, progress = () => {}, de
   await unsent(esplora, plan.update);
   progress('Approve the connection to this page in Humid, if it asks…');
   await humidSession(humid);
-  progress('Check the update in Humid within 30 seconds, then sign and send it there…');
+  progress('Review the update in Humid, then sign and send…');
   const txid = await signAndBroadcast(humid, plan, deadlineMs);
   if (txid !== plan.txid) throw Object.assign(new Error(`Humid reports sending ${txid}, not the update ${plan.txid}`), { sent: 'maybe' });
   return txid;

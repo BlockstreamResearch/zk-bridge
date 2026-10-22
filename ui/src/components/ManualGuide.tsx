@@ -1,0 +1,86 @@
+import { PUBLISHED } from '@bridge/core/config.js';
+import { useBridge } from '../bridge/context';
+import { REPO } from '../content/links';
+import { Button, CopyLine, ExtLink, Step } from './primitives';
+
+const SETUP = `git clone --branch ${PUBLISHED.branch} ${REPO}.git
+cd zk-bridge`;
+
+const RPC = `export SEPOLIA_EXECUTION_RPC='YOUR_EXECUTION_RPC_URL'
+export SEPOLIA_CONSENSUS_RPC='YOUR_BEACON_API_URL'`;
+
+/** Local proof preparation, followed by browser-built updates and claims. */
+export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
+  onUpdate: () => void;
+  onClaim: () => void;
+  onRedeem: () => void;
+}) {
+  const { instance } = useBridge();
+
+  return (
+    <section className="tray" id="guide" aria-labelledby="guide-title">
+      <div className="panel-head">
+        <h2 className="tray-title" id="guide-title">Bridge guide</h2>
+        <p className="hint">Anyone can prove, claim and relay. Already proven? Skip to claim.</p>
+      </div>
+      {!instance ? <p className="help">No bridge instance is available.</p> : (
+        <ol className="steps-form">
+          <Step n={1} title="Deposit">
+            <p className="help">Use an Ethereum wallet on Sepolia and Humid on Liquid testnet. Deposit to Humid's Receive → Unconfidential address.
+              Keep SepETH for gas and tL-BTC for Liquid fees. Wait for Ethereum finality.</p>
+            <p className="warn">Your deposit stays locked until proven and claimed. There is no refund.</p>
+          </Step>
+          <Step n={2} title="Prepare the proof">
+            <p className="help">Only unproven deposits need this local step.</p>
+            <details className="aside-form">
+              <summary>Local setup</summary>
+              <p className="help">Install Git, Rust/Cargo, Python 3.9+, Node.js 22.13+ in the 22.x series, just, Go, protoc, CMake,
+                LLVM/libclang, pkg-config, OpenSSL 3 and Docker. On macOS, install Xcode Command Line Tools. Keep Docker running during setup.</p>
+              <div style={{ whiteSpace: 'pre-wrap' }}>
+                <CopyLine label="Clone repository" value={SETUP} />
+                <CopyLine label="Choose bridge instance" value={`export BRIDGE_INSTANCE='${instance.record.replace(/\/$/, '')}'`} />
+                <CopyLine label="Configure Sepolia RPCs" value={RPC} />
+                <CopyLine label="Build proof tools" value="just deps tools prover check-elf" />
+              </div>
+              <p className="help">Replace both RPC placeholders. The execution RPC must serve logs, calls and <code className="mono">eth_getProof</code> at
+                finalized blocks; the beacon API must serve light-client updates. Keep RPC credentials private.</p>
+              <p className="help">Proving can exceed 16 GB RAM. Use a larger machine if needed; wallet signing stays in your browser.</p>
+            </details>
+            <CopyLine label="Check deposits" value="just status" />
+            <p className="help">Find your deposit number from Activity. If it is proven, skip to claim. If its store is missing, run
+              <code className="mono"> just reconstruct</code>. Once final, run:</p>
+            <CopyLine label="Generate proof" value="just inputs execute prove" />
+            <p className="help">This writes <code className="mono">target/takeover/proof.browser.json</code>. Before generating another proof,
+              move any existing <code className="mono">proof.json</code> and matching <code className="mono">proof.store.json</code> aside.</p>
+          </Step>
+          <Step n={3} title="Send the update">
+            <p className="help">Load <code className="mono">proof.browser.json</code> in Send update, prepare the fee, then review and sign in Humid. The page builds the transaction. Wait for confirmation.</p>
+            <Button onClick={onUpdate}>Open update</Button>
+            <p className="help">If another claim changes the state first, run <code className="mono">just proof-bundle</code> and reload the file.
+              If another update makes the proof stale, check <code className="mono">just status</code> before proving again.</p>
+            <details className="aside-form">
+              <summary>Share the store</summary>
+              <p className="help">Optionally share <code className="mono">target/takeover/proof.store.json</code> with the next prover or publish it
+                through the <ExtLink href={REPO}>repository</ExtLink>. Uploading it here does not publish it.</p>
+              <p className="warn">Withholding the store can stall later proofs. Recovery needs matching retained beacon data or saved proof inputs;
+                without either, recovery may be impossible.</p>
+            </details>
+          </Step>
+          <Step n={4} title="Claim on Liquid">
+            <p className="help">Once proven, enter the deposit number in Claim, prepare its fee, and review and sign in Humid.
+              The page builds the claim; no new proof is needed. It pays the original Liquid recipient. Wait for confirmation.</p>
+            <p className="warn">Update and claim each spend their entire selected fee coin. Check the fee before signing.
+              If a broadcast is uncertain, check its transaction before retrying.</p>
+            <Button onClick={onClaim}>Open claim</Button>
+          </Step>
+          <Step n={5} title="Redeem on Sepolia">
+            <p className="help">In Redeem, enter the ETH recipient and amount, burn through Humid, then track the burn.
+              After confirmations, relay any missing headers and redeem. Anyone can submit the proof; the named recipient receives the ETH.</p>
+            <p className="warn">Burning is irreversible. Use the exact script shown and review the recipient.</p>
+            <Button onClick={onRedeem}>Open redeem</Button>
+          </Step>
+        </ol>
+      )}
+    </section>
+  );
+}

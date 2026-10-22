@@ -249,7 +249,7 @@ test('deposit admission: the escrow decides, and its reads say why', () => {
   const why = (patch, at = now) => depositAdmission({ ...closed, ...patch, admission: { ...admission, ...patch.admission } }, at);
   // Only a lagging light client is reopened by relaying; the page offers the relay for that case alone.
   assert.deepEqual([why({ admission: { depositsEnd: now } }).relayReopens, why({ admission: { depositsEnd: now } }).text.includes('ended for good')], [false, true]);
-  assert.match(why({ admission: { forkCheckedAt: 0 } }).text, /paused.*does not help/);
+  assert.match(why({ admission: { forkCheckedAt: 0 } }).text, /paused.*fresh fork proof/);
   assert.match(why({ admission: { forkCheckedAt: now - 3601 } }).text, /paused/);
   // Only a stale fork check is reopened by a fork proof; the page offers the proof form for that case alone.
   assert.deepEqual([why({ admission: { forkCheckedAt: 0 } }).forkReopens, why({ admission: { forkCheckedAt: 0 } }).relayReopens], [true, false]);

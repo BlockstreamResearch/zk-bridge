@@ -153,7 +153,7 @@ describe('a claim sent with Humid', () => {
     // Once before Humid is asked (sendClaim checks the claim is unsent), then ten times, as the API can lag a broadcast.
     expect(liquid.hexReads - before).toBe(11);
     expect(s().sent).toMatchObject({ where: 'unknown', why: 'the Liquid API does not show it', said: null });
-    expect(sentReport('claim', s().sent!)).toMatch(/^Humid reports sending claim .*, but the Liquid API does not show it.*Do not count it as claimed until it shows/);
+    expect(sentReport('claim', s().sent!)).toMatch(/Liquid API has not verified claim[\s\S]*Check again before retrying/);
     expect(c.getSnapshot().toast).toBeNull();
     // Held: a second click asks the Liquid API once more, never Humid.
     await c.sendFile('liquidClaim');
@@ -197,7 +197,7 @@ describe('a claim sent with Humid', () => {
     });
     await c.sendFile('liquidClaim');
     expect(s().sent).toMatchObject({ where: 'mempool', said: expect.stringMatching(/did not confirm/) });
-    expect(sentReport('claim', s().sent!)).toBe('Humid did not report sending this claim, but the Liquid API has it, so it was sent: see below.');
+    expect(sentReport('claim', s().sent!)).toMatch(/Liquid has this claim[\s\S]*Humid did not report sending it/);
   });
 
   it.each([
@@ -215,7 +215,7 @@ describe('a claim sent with Humid', () => {
     const { c, s, asked } = await loaded('liquidClaim', async () => { throw failure('user_rejected'); });
     await c.sendFile('liquidClaim');
     expect(s().sent).toBeNull();
-    expect(s().error).toMatch(/you declined, or its prompt closed itself/);
+    expect(s().error).toMatch(/did not receive approval[\s\S]*Nothing was sent/);
     await c.sendFile('liquidClaim');
     expect(asked.sign).toBe(2);
   });
@@ -232,7 +232,7 @@ describe('an update sent with Humid', () => {
     const { c, s, asked } = await loaded('liquidUpdate', async () => ({ txid: TXID }));
     await c.sendFile('liquidUpdate');
     expect(s().sent).toMatchObject({ where: 'unknown', said: null });
-    expect(sentReport('update', s().sent!)).toMatch(/Do not count it as sent until it shows. If it never does, load update.hex again/);
+    expect(sentReport('update', s().sent!)).toMatch(/Liquid API has not verified update[\s\S]*Check again before retrying/);
     await c.sendFile('liquidUpdate');
     expect(asked.sign).toBe(1);
   });
@@ -266,13 +266,13 @@ describe('the claim panel', () => {
     const { user, claim, liquid, asked } = await panel(async () => ({ txid: TXID }));
     await user.click(claim.getByRole('button', { name: 'Sign and send with Humid', hidden: true }));
     const check = await claim.findByRole('button', { name: 'Check on Liquid again', hidden: true });
-    expect(claim.getByText(/Do not count it as claimed until it shows/)).toBeInTheDocument();
-    expect(claim.getByText(/Not on Liquid, as far as its API shows: check again in a minute\. Last checked/)).toBeInTheDocument();
-    expect(claim.queryByText(/is confirmed on Liquid|The Liquid API has claim/)).toBeNull();
-    expect(claim.queryByText(/In Humid's approval/)).toBeNull();
+    expect(claim.getByText(/Liquid API has not verified claim/)).toBeInTheDocument();
+    expect(claim.getByText(/Check Liquid before sending again/)).toBeInTheDocument();
+    expect(document.getElementById('claim')?.querySelector('.done')).toBeNull();
+    expect(document.getElementById('claim')?.querySelector('.approval')).toBeNull();
     liquid.has = 'confirmed';
     await user.click(check);
-    expect(await claim.findByText(/is confirmed on Liquid in block 2,664,001, as the Liquid API reports/)).toBeInTheDocument();
+    expect(await claim.findByText(/Claim[\s\S]*confirmed\./)).toBeInTheDocument();
     expect(claim.getByRole('button', { name: 'Sign and send with Humid', hidden: true })).toBeDisabled();
     expect(asked.sign).toBe(1);
   });
@@ -285,7 +285,7 @@ describe('the update panel', () => {
     render(<BridgeProvider controller={ctx.c}><App /></BridgeProvider>);
     const tray = within(document.getElementById('update')!);
     const send = () => tray.getByRole('button', { name: 'Sign and send with Humid', hidden: true });
-    const fact = () => tray.getByRole('row', { name: /^Store/, hidden: true });
+    const fact = () => tray.getByText(/^Successor store:/);
     const updateState = () => ctx.c.getSnapshot().liquidUpdate;
     return { ...ctx, user, tray, send, fact, updateState };
   }
@@ -299,10 +299,10 @@ describe('the update panel', () => {
 
   it('sends an update whose store this site does not publish only once the sender loads that store', async () => {
     const { user, tray, send, fact, asked, updateState } = await opened({ ...updatePlan, listed: null, store: null });
-    expect(fact()).toHaveTextContent('none yet: this site does not publish it. Load the file below');
+    expect(tray.getByLabelText(/Successor store/)).toBeInTheDocument();
     expect(send()).toBeDisabled();
-    expect(tray.getByText(/^Load the store this update moves to first/)).toBeInTheDocument();
-    const store = tray.getByLabelText(/The store this update moves to/);
+    expect(tray.getByText(/^Load the successor store below/)).toBeInTheDocument();
+    const store = tray.getByLabelText(/Successor store/);
 
     await user.upload(store, json('proof.store.json', 'not json'));
     expect(await tray.findByText('Not this update\'s store: proof.store.json is not a store file.')).toBeInTheDocument();
@@ -315,20 +315,20 @@ describe('the update panel', () => {
 
     await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
     await waitFor(() => expect(fact()).toHaveTextContent(
-      'from your file proof.store.json; its head and roots match the update\'s lc. The next prover checks its contents',
+      'loaded locally; not published by this page',
     ));
     expect(tray.queryByText(/Not this update's store/)).toBeNull();
     expect(updateState().plan?.store).toMatchObject({ where: 'file', entry: { head: STORE.head, update: TXID, store: 'lc_stores/9000000.json' } });
     expect(send()).toBeEnabled();
     await user.click(send());
-    expect(await tray.findByText(/is confirmed on Liquid in block 2,664,001/)).toBeInTheDocument();
+    expect(await tray.findByText(/Update[\s\S]*confirmed\./)).toBeInTheDocument();
     expect(asked.sign).toBe(1);
   });
 
   /** The update panel after the sender has loaded proof.store.json. */
   async function withOwnStore() {
     const ctx = await opened({ ...updatePlan, listed: null, store: null });
-    const store = ctx.tray.getByLabelText(/The store this update moves to/);
+    const store = ctx.tray.getByLabelText(/Successor store/);
     await ctx.user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
     await waitFor(() => expect(ctx.send()).toBeEnabled());
     return { ...ctx, store };
@@ -342,19 +342,19 @@ describe('the update panel', () => {
       /other\.json is the store at slot 9,000,064 .*, not the one at slot 9,000,000/,
     ],
   ])('drops the loaded store when the next file chosen %s', async (_case, text, error) => {
-    const { user, tray, send, fact, store, asked, updateState } = await withOwnStore();
+    const { user, tray, send, store, asked, updateState } = await withOwnStore();
     await user.upload(store, json('other.json', text));
     expect(await tray.findByText(error)).toBeInTheDocument();
     expect(updateState().plan?.store).toBeNull();
-    expect(fact()).toHaveTextContent('none yet: this site does not publish it. Load the file below');
+    expect(tray.getByLabelText(/Successor store/)).toBeInTheDocument();
     expect(send()).toBeDisabled();
-    expect(tray.getByText(/^Load the store this update moves to first/)).toBeInTheDocument();
+    expect(tray.getByText(/^Load the successor store below/)).toBeInTheDocument();
 
     await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
     await waitFor(() => expect(send()).toBeEnabled());
     expect(tray.queryByText(/Not this update's store/)).toBeNull();
     await user.click(send());
-    expect(await tray.findByText(/is confirmed on Liquid in block 2,664,001/)).toBeInTheDocument();
+    expect(await tray.findByText(/Update[\s\S]*confirmed\./)).toBeInTheDocument();
     expect(asked.sign).toBe(1);
   });
 
@@ -363,7 +363,7 @@ describe('the update panel', () => {
     await user.upload(store, []);
     await waitFor(() => expect(send()).toBeDisabled());
     expect(updateState().plan?.store).toBeNull();
-    expect(fact()).toHaveTextContent('none yet: this site does not publish it. Load the file below');
+    expect(tray.getByLabelText(/Successor store/)).toBeInTheDocument();
     expect(tray.queryByText(/Not this update's store/)).toBeNull();
     // The controller refuses too, not only the disabled button: Humid is not asked to sign.
     await c.sendFile('liquidUpdate');
@@ -372,7 +372,7 @@ describe('the update panel', () => {
 
     await user.upload(store, json('proof.store.json', JSON.stringify(STORE)));
     await waitFor(() => expect(send()).toBeEnabled());
-    expect(fact()).toHaveTextContent('from your file proof.store.json');
+    expect(fact()).toHaveTextContent('loaded locally; not published by this page');
   });
 
   it('does not take a store file still being read once another file is chosen or the field is cleared', async () => {
@@ -403,14 +403,14 @@ describe('the update panel', () => {
 
   it('asks for no file when this site publishes the store', async () => {
     const { tray, send, fact } = await opened(updatePlan);
-    expect(fact()).toHaveTextContent('published on this site, lc_stores/9000000.json');
-    expect(tray.queryByLabelText(/The store this update moves to/)).toBeNull();
+    expect(fact()).toHaveTextContent('published on this site');
+    expect(tray.queryByLabelText(/Successor store/)).toBeNull();
     expect(send()).toBeEnabled();
   });
 
   it('does not count a store this page\'s record lists when the page is not the published site', async () => {
-    const { send, fact } = await opened({ ...updatePlan, store: null });
-    expect(fact()).toHaveTextContent('this page\'s record lists lc_stores/9000000.json, but only the published site\'s record counts');
+    const { send, tray } = await opened({ ...updatePlan, store: null });
+    expect(tray.getByLabelText(/Successor store/)).toBeInTheDocument();
     expect(send()).toBeDisabled();
   });
 

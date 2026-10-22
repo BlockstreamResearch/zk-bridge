@@ -1,3 +1,4 @@
+import { buildTransaction } from './builder';
 import { DEFAULTS } from '@bridge/core/config.js';
 import type { Humid } from '@bridge/core/lib/humid.js';
 import type { BridgeEnv, Eip1193 } from './types';
@@ -25,5 +26,6 @@ export function browserEnv(): BridgeEnv {
     confirm: (text) => window.confirm(text),
     copy: (text) => navigator.clipboard.writeText(text),
     pollMs: DEFAULTS.pollMs,
+    buildTransaction,
   };
 }

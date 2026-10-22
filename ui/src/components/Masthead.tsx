@@ -12,9 +12,9 @@ export function SiteNotice() {
   if (useBridge().published) return null;
   return (
     <p className="notice site-notice shell" role="note">
-      <span><strong>This is not the bridge's published site.</strong> This copy may serve an older instance record, and no light-client store
-        it lists counts as published. Use <ExtLink href={SITE}>{SITE.replace(/^https:\/\/|\/$/g, '')}</ExtLink>, published
-        from <ExtLink href={REPO}>{REPO.replace('https://github.com/', '')}</ExtLink>.</span>
+      <span><strong>Unofficial copy.</strong> Its records may be stale; listed stores do not count as published here.
+        Use <ExtLink href={SITE}>{SITE.replace(/^https:\/\/|\/$/g, '')}</ExtLink>.
+        Source: <ExtLink href={REPO}>{REPO.replace('https://github.com/', '')}</ExtLink>.</span>
     </p>
   );
 }
@@ -78,11 +78,9 @@ export function Slip({ children }: { children: ReactNode }) {
       <div className="slip-head">
         <span className="pill" data-tone="pending" aria-hidden="true"><span className="dot" />Proof of concept</span>
         <p>
-          <strong>A proof of concept on test networks, with no real value.</strong> Within the assumptions under “What you
-          trust”, funds are guarded by verification, not by an operator: Ethereum checks Liquid's block signatures, and
-          Liquid checks an SP1 proof of Ethereum finality, so no relayer or prover can redirect them. Progress does need
-          someone to act. You can do every step yourself with the repository's tools, and relay blocks and finish a
-          redemption from this page. Liquid testnet blocks are signed by one key.
+          <strong>Testnet proof of concept. No real value. Unaudited.</strong> Ethereum verifies Liquid's signed blocks;
+          Liquid verifies proofs of Ethereum finality. You or anyone else can prove, claim and relay.
+          Liquid testnet trusts one signing key. Review the assumptions below before using the bridge.
         </p>
       </div>
       {children}

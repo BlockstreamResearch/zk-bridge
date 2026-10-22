@@ -26,7 +26,7 @@ export const signersAhead = (s: S) => !!s.bridge && !!s.liquid && s.bridge.sbsHa
 
 export const relayLag = (s: S) => (s.bridge && s.liquid ? Math.max(0, s.liquid.tip - s.bridge.lcTip) : 0);
 
-const unusable = (s: S) => (s.instance ? 'The bridge escrow cannot be used; see the notice above.' : 'No bridge instance is deployed yet; see the notice above.');
+const unusable = (s: S) => (s.instance ? 'Escrow unavailable. See the notice above.' : 'No bridge instance. See the notice above.');
 
 /** What is missing before the bridge can be used, in the order a user fixes it; null once ready. */
 export function notReady(s: S): string | null {
@@ -55,11 +55,11 @@ export const burnable = (s: S) => readable(s) && !!burnAsset(s);
 export function notBurnable(s: S): string | null {
   const why = notReadable(s);
   if (why) return why;
-  if (!s.bootstrap) return 'Checking the bridge\'s Liquid bootstrap, which shows which asset a burn must hold.';
+  if (!s.bootstrap) return 'Verifying the bridge asset against its Liquid bootstrap.';
   if (burnAsset(s)) return null;
   return s.bootstrap.unavailable
-    ? 'The Liquid API did not serve the bridge\'s bootstrap just now, so this page cannot yet confirm which asset a burn must hold and shows no burn. It tries again by itself (see Bridge checks); burn nothing until then.'
-    : 'The published bootstrap does not confirm the asset the escrow reports (see Bridge checks), so this page shows no burn. Burn nothing.';
+    ? 'Bootstrap unavailable. Retrying automatically. Burn nothing until verification passes; see Bridge checks.'
+    : 'Bridge asset verification failed. Burn nothing; see Bridge checks.';
 }
 
 /**
@@ -84,24 +84,24 @@ export interface Chip {
 
 /** The three overview readings: the wallet, Liquid's tip and the bridge's light client. */
 export function chips(s: S): { eth: Chip; liquid: Chip; bridge: Chip } {
-  const eth: Chip = !s.hasWallet ? { state: 'bad', value: 'No wallet', sub: 'Install a browser wallet such as MetaMask' }
-    : !s.account ? { state: 'idle', value: 'Not connected', sub: 'Connect a wallet to deposit or redeem' }
+  const eth: Chip = !s.hasWallet ? { state: 'bad', value: 'No wallet', sub: 'Install an Ethereum browser wallet' }
+    : !s.account ? { state: 'idle', value: 'Not connected', sub: 'Connect to deposit or redeem' }
       : !onSepolia(s) ? { state: 'bad', value: 'Wrong network', sub: 'Switch your wallet to Sepolia' }
         : { state: 'ok', value: short(s.account, 4), sub: 'Connected account' };
-  const liquid: Chip = s.liquidError ? { state: 'bad', value: 'Unreachable', sub: 'The Liquid testnet API did not answer' }
-    : s.liquid ? { state: 'ok', value: s.liquid.tip.toLocaleString('en'), sub: 'Latest block, from the Liquid testnet API', unit: 'blocks' }
-      : { state: 'idle', value: 'Checking…', sub: 'Reading the Liquid testnet API' };
+  const liquid: Chip = s.liquidError ? { state: 'bad', value: 'Unreachable', sub: 'Liquid API unavailable' }
+    : s.liquid ? { state: 'ok', value: s.liquid.tip.toLocaleString('en'), sub: 'Latest Liquid block', unit: 'blocks' }
+      : { state: 'idle', value: 'Checking…', sub: 'Reading Liquid API' };
   let bridge: Chip;
-  if (!s.instance) bridge = { state: 'warn', value: 'Not deployed', sub: 'No bridge instance is published yet' };
+  if (!s.instance) bridge = { state: 'warn', value: 'Not deployed', sub: 'No published bridge instance' };
   else if (s.bridgeError) bridge = { state: 'bad', value: 'Unavailable', sub: `Escrow ${short(s.instance.escrow, 4)} cannot be read` };
-  else if (!s.bridge) bridge = { state: 'idle', value: 'Connect to read', sub: `Escrow ${short(s.instance.escrow, 4)}: connect a wallet, or set a Sepolia RPC in Settings` };
+  else if (!s.bridge) bridge = { state: 'idle', value: 'Connect to read', sub: `Escrow ${short(s.instance.escrow, 4)}: connect or set a Sepolia RPC` };
   else {
     const lag = relayLag(s);
     const behind = !s.liquid ? 'Relayed to the escrow' : lag === 0 ? 'Level with Liquid' : `${lag.toLocaleString('en')} block${lag === 1 ? '' : 's'} behind Liquid`;
     bridge = {
       state: lag > 60 || signersAhead(s) ? 'warn' : 'ok',
       value: s.bridge.lcTip.toLocaleString('en'),
-      sub: `${signersAhead(s) ? 'New Liquid signing keys not relayed yet · ' : ''}${behind} · deposits ${admission(s)!.deposit ? 'open' : 'closed'}`,
+      sub: `${signersAhead(s) ? 'Signing keys need relaying · ' : ''}${behind} · deposits ${admission(s)!.deposit ? 'open' : 'closed'}`,
       unit: 'blocks',
     };
   }
@@ -110,14 +110,14 @@ export function chips(s: S): { eth: Chip; liquid: Chip; bridge: Chip } {
 
 /** The one notice under the route: the most pressing reason the bridge is not fully usable, or ''. */
 export function notice(s: S): string {
-  if (!s.instance) return 'No instance of this bridge is published yet, so the page takes no deposits and has nothing to redeem.';
-  if (s.bridgeError) return `The bridge escrow ${short(s.instance.escrow)} is ${s.bridgeError}. Do not send it anything from this page.`;
-  if (s.liquidError) return `Liquid testnet data is unavailable (${s.liquidError}). Checking the bridge, tracking claims and redeeming need it.`;
+  if (!s.instance) return 'No published bridge instance. Deposits and redemptions are unavailable.';
+  if (s.bridgeError) return `Escrow ${short(s.instance.escrow)}: ${s.bridgeError}. Do not send funds.`;
+  if (s.liquidError) return `Liquid data unavailable: ${s.liquidError}. Checks, tracking and redemption need it.`;
   if (s.bootstrap && !s.bootstrap.ok) return `Deposits are off: ${s.bootstrap.error}. See Bridge checks.`;
   const adm = admission(s);
   if (adm && !adm.deposit) return adm.text;
-  if (signersAhead(s)) return 'Liquid has changed its block-signing keys since the last block relayed to the bridge. The light client follows the change when the headers that elected it are relayed; until then new burns wait.';
-  if (relayLag(s) > 60) return `The bridge's view of Liquid is ${relayLag(s)} blocks behind. Redemptions of recent burns wait until someone relays; you can do it yourself from a burn's row.`;
+  if (signersAhead(s)) return 'New Liquid signing keys await relaying. New burns must wait.';
+  if (relayLag(s) > 60) return `Liquid relay is ${relayLag(s)} blocks behind. Anyone can relay from a burn row to continue redemption.`;
   return '';
 }
 
@@ -132,20 +132,20 @@ export function checkRows(s: S): CheckRow[] {
   const add = (ok: boolean | null, text: string) => rows.push({ ok, text });
   const inst = s.instance;
   if (!inst) {
-    add(null, 'No bridge instance is published yet.');
+    add(null, 'No published bridge instance.');
     return rows;
   }
   if (!s.bridge) {
-    add(s.bridgeError ? false : null, s.bridgeError ? `The escrow is ${s.bridgeError}.` : 'Connect a wallet on Sepolia, or set a Sepolia RPC in Settings, to read the escrow.');
+    add(s.bridgeError ? false : null, s.bridgeError ? `The escrow is ${s.bridgeError}.` : 'Connect on Sepolia or set a Sepolia RPC in Settings.');
   } else {
-    add(true, `The escrow's code is the published deployment's: its code hash is the one in ${inst.record}.`);
-    add(true, `The escrow redeems Liquid asset ${short(s.bridge.assetDisplay)} and no other.`);
+    add(true, `Escrow code hash matches ${inst.record}.`);
+    add(true, `Redeemable asset: ${short(s.bridge.assetDisplay)}.`);
     if (s.bootstrap && s.bootstrap.checks.length) for (const c of s.bootstrap.checks) add(c.ok, c.text);
     else if (s.bootstrap) add(false, s.bootstrap.error ?? 'the bootstrap was not checked');
     const adm = admission(s)!;
     add(adm.deposit, adm.text);
   }
-  add(null, `Not checked here: that the state address ${short(inst.state, 8)} commits to the reviewed covenant code, and that the code hash is the reviewed source's. `
-    + `Both are checked from ${inst.record}: assemble.py verify-bootstrap rebuilds the address, and a local compilation gives the code hash.`);
+  add(null, `Not checked here: state address ${short(inst.state, 8)} and escrow code against source. `
+    + `Verify from ${inst.record} with assemble.py verify-bootstrap and a local escrow compilation.`);
   return rows;
 }

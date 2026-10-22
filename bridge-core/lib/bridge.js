@@ -498,9 +498,7 @@ export function depositAdmission(b, now) {
       + 'proof path was proven. Nothing reopens them; redemptions are not affected.');
   }
   if (forkCheckedAt === 0 || now > forkCheckedAt + maxForkCheckAge) {
-    return closed('Deposits are paused: nobody has recently proven that Sepolia is still on the fork the bridge\'s proofs '
-      + 'cover. Anyone can send that proof (checkFork, against an EIP-4788 beacon block root): the instance\'s operator '
-      + 'normally does, and you can paste one below. Relaying Liquid headers does not help. Redemptions are not affected.', false, true);
+    return closed('Deposits are paused until a fresh fork proof is submitted. You or anyone else can send one below. Redemptions remain available.', false, true);
   }
   if (b.lcTime === 0 || now > b.lcTime + b.maxRelayLag) {
     return closed(`Deposits are closed: the bridge's view of Liquid is more than ${Math.round(b.maxRelayLag / 3600)} hours behind, so a redemption could not be served now. Relaying Liquid headers reopens them; redemptions are not affected.`, true);

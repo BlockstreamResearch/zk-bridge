@@ -23,14 +23,13 @@ function ForkProofForm() {
   };
   return (
     <details className="aside-form">
-      <summary>Send a fork proof to reopen deposits</summary>
+      <summary>Reopen with a fork proof</summary>
       <TextAreaField label="Proof JSON" rows={4} value={text} onChange={(e) => setText(e.target.value)} error={error}
         placeholder='{ "proof": { "timestamp": … } }'
-        help={<>The output of <code className="mono">tools/liquid-relay/fork_proof.py build</code>, from anyone. Before your wallet is asked, the page checks that
-          it reaches the beacon block root Ethereum itself holds for its timestamp (EIP-4788), that it is under the fork the escrow pins, and that it is recent
-          enough. The escrow checks it again. Sending it costs gas and reopens deposits for everyone.</>} />
+        help={<>Paste the output of <code className="mono">tools/liquid-relay/fork_proof.py build</code>. The page and escrow check its
+          Ethereum beacon root, fork and age. Anyone can submit it; sending costs Sepolia gas.</>} />
       <div className="actions">
-        <Button onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Check and send the proof'}</Button>
+        <Button onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Check and send'}</Button>
       </div>
     </details>
   );
@@ -56,52 +55,50 @@ export function DepositPanel({ onClaim }: { onClaim: () => void }) {
   const batches = Math.max(1, Math.ceil(relayLag(s) / 100));
   const hint = notReady(s)
     || (!open ? (adm!.relayReopens ? `${adm!.text} Relaying Liquid to its tip takes about ${batches} transaction${batches > 1 ? 's' : ''}.` : adm!.text)
-      : !verified ? 'The bridge\'s Liquid bootstrap is not verified (see Bridge checks); deposits stay off.'
-        : !filled ? 'Fill in a valid address and amount.'
-          : !ack ? 'Confirm you control the Liquid address.' : `Your wallet will ask you to confirm sending to the escrow ${s.instance!.escrow}.`);
+      : !verified ? 'Deposits are off until bootstrap verification passes. See Bridge checks.'
+        : !filled ? 'Enter an address and amount.'
+          : !ack ? 'Confirm you control the Liquid address.' : `Confirm the deposit in your wallet. Escrow: ${s.instance!.escrow}.`);
 
   return (
     <ol className="steps-form">
-      <Step n={1} title="Where should the bridge asset arrive?">
+      <Step n={1} title="Receive on Liquid">
         <Field label="Liquid testnet address" placeholder="tex1q… or tex1p…" value={recipient}
           onChange={(e) => setRecipient(e.target.value)} onBlur={() => touch('recipient')}
           error={touched.has('recipient') ? d.errors.recipient : undefined}
-          help="The unconfidential form of an address from a wallet you control: segwit (tex1q…) or Taproot (tex1p…), or a standard scriptPubKey in hex. The claim pays an explicit output to exactly this script, so its amount is public on Liquid." />
-        <p className="warn">The claim pays an explicit (unblinded) output, which not every wallet can spend. With Humid, give the address under Receive, then
-          Unconfidential: the Redeem tab can then have Humid spend the claim, which Humid's own Send cannot, given a little tL-BTC in Humid for the fee,
-          received at its confidential address. Elements Core is expected to work, but has not been tested here.</p>
+          help="Use an unconfidential address you control: tex1q… or tex1p…, or a standard script in hex. The claim amount is public." />
+        <p className="warn">Your wallet must support unblinded outputs. In Humid, use Receive → Unconfidential. Redeem here with Humid,
+          and fund its confidential address with tL-BTC for fees.</p>
       </Step>
-      <Step n={2} title="How much SepETH?">
+      <Step n={2} title="Deposit amount">
         <Field label="Amount in ETH" placeholder="0.001" inputMode="decimal" unit="ETH" value={amount}
           onChange={(e) => setAmount(e.target.value)} onBlur={() => touch('amount')}
           error={touched.has('amount') ? d.errors.amount : undefined}
-          help="Minimum 0.001. Steps of 0.00000001 ETH: one bridge unit each." />
+          help="Minimum 0.001 ETH. One bridge unit = 0.00000001 ETH." />
         {filled && (
-          <p className="quote">You lock {formatUnits(d.wei!, 18)} SepETH. Once Ethereum finalizes it and an update proves it to Liquid, a claim pays
-            {' '}{d.units!.toLocaleString('en')} units ({formatUnits(d.units!, 8)} in wallets) of the bridge asset{s.bridge ? ` ${short(s.bridge.assetDisplay)}` : ''} to
-            {' '}{d.address ? short(d.address, 10) : `script ${short(bytesToHex(d.script!), 8)}`}, as an explicit output: the amount is public on Liquid.</p>
+          <p className="quote">Lock {formatUnits(d.wei!, 18)} SepETH for {d.units!.toLocaleString('en')} bridge units
+            {' '}({formatUnits(d.units!, 8)} in wallets){s.bridge ? ` of asset ${short(s.bridge.assetDisplay)}` : ''}.
+            Recipient: {d.address ? short(d.address, 10) : `script ${short(bytesToHex(d.script!), 8)}`}.</p>
         )}
       </Step>
       <Step n={3} title="Review and send">
         <label className="check">
           <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-          <span>I control this Liquid address, and I understand someone must prove and claim my deposit, in practice this instance's operator.</span>
+          <span>I control this address. I understand that anyone, including me, can prove and claim the deposit, and there is no refund.</span>
         </label>
         <div className="actions">
           <Button variant="primary" disabled={!canSend} onClick={() => void c.sendDeposit({ recipient, amount })}>
             {s.depositBusy ? 'Sending…' : 'Send deposit'}
           </Button>
           {showRelay && (
-            <Button disabled={s.relaying} onClick={() => void c.relayForDeposits()}>{s.relaying ? 'Relaying…' : 'Relay Liquid to reopen deposits'}</Button>
+            <Button disabled={s.relaying} onClick={() => void c.relayForDeposits()}>{s.relaying ? 'Relaying…' : 'Relay to reopen deposits'}</Button>
           )}
           <Hint>{hint}</Hint>
         </div>
         {showFork && <ForkProofForm />}
       </Step>
-      <Step n={4} title="Track it across">
-        <p className="help">Each deposit waits for Ethereum finality (usually 13 to 20 minutes), then for someone, in practice this instance's operator, to prove
-          it to Liquid and claim it. With the operator at work that usually takes 30 minutes to 2 hours from sending, but no time is promised. Each row says what
-          its deposit is waiting for, and what you can do if that takes longer than usual. Progress is saved in this browser.</p>
+      <Step n={4} title="Track deposit">
+        <p className="help">Wait for Ethereum finality, then prove and claim the deposit. Anyone can do these steps; they are not automatic.
+          Progress is saved in this browser. <a href="#guide">Guide</a></p>
         <JourneyList kind="deposit" limit={3} onClaim={onClaim} />
       </Step>
     </ol>

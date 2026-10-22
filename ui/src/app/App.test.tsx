@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { BridgeProvider } from '../bridge/context';
 import { BridgeController } from '../bridge/controller';
-import { ACCOUNT_CHECKSUMMED, DEPOSIT_ADDRESS, fixture, type Scenario } from '../dev/fixture';
+import { ACCOUNT_CHECKSUMMED, ASSET_DISPLAY, DEPOSIT_ADDRESS, fixture, type Scenario } from '../dev/fixture';
 import { App } from './App';
 
 function renderPage(scenario: Scenario = 'connected', site?: string) {
@@ -24,7 +24,7 @@ describe('the page', () => {
     expect(await screen.findByText('2,664,000')).toBeInTheDocument();
     expect(await screen.findByText('2,663,990')).toBeInTheDocument();
     const checks = screen.getByRole('region', { name: 'Bridge checks' });
-    expect(await within(checks).findByText(/its code hash is the one in instances\/fixture-instance\//)).toBeInTheDocument();
+    expect(await within(checks).findByText(/Escrow code hash matches instances\/fixture-instance\//)).toBeInTheDocument();
     expect(within(checks).getByText('output 0 pays the published state address')).toBeInTheDocument();
     expect(within(checks).getAllByRole('img', { name: 'Not checked here' }).length).toBeGreaterThan(0);
   });
@@ -44,7 +44,7 @@ describe('the page', () => {
 
   it('says plainly when no instance is published, everywhere it matters', async () => {
     renderPage('no-instance');
-    expect(await screen.findByText(/No instance of this bridge is published yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No published bridge instance. Deposits and redemptions are unavailable/)).toBeInTheDocument();
     expect(screen.getAllByText(/No instance is published yet/).length).toBeGreaterThan(3);
     expect(screen.queryByRole('link', { name: /Escrow on Etherscan/ })).toBeNull();
   });
@@ -56,8 +56,8 @@ describe('the page', () => {
   ])('names the published site at the top when it is %s', (_case, site) => {
     renderPage('connected', site);
     const note = screen.getByRole('note');
-    expect(note).toHaveTextContent('This is not the bridge\'s published site.');
-    expect(note).toHaveTextContent('no light-client store it lists counts as published');
+    expect(note).toHaveTextContent('Unofficial copy.');
+    expect(note).toHaveTextContent('listed stores do not count as published here');
     expect(within(note).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([PUBLISHED.site, PUBLISHED.repo]);
     // First on the page, before the masthead.
     expect(document.body.querySelector('.site-notice + .masthead')).not.toBeNull();
@@ -66,7 +66,7 @@ describe('the page', () => {
   it('says nothing about other copies on the published site itself', () => {
     renderPage('connected', `${PUBLISHED.site}`);
     expect(screen.queryByRole('note')).toBeNull();
-    expect(screen.queryByText(/not the bridge's published site/)).toBeNull();
+    expect(screen.queryByText(/Unofficial copy/)).toBeNull();
   });
 });
 
@@ -108,8 +108,8 @@ describe('the deposit form', () => {
     await user.type(screen.getByLabelText('Liquid testnet address'), DEPOSIT_ADDRESS);
     await user.type(screen.getByLabelText('Amount in ETH'), '0.0025');
     expect(send).toBeDisabled();
-    expect(screen.getByText(/You lock 0.0025 SepETH/)).toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox'));
+    expect(screen.getByText(/Lock 0.0025 SepETH/)).toBeInTheDocument();
+    await user.click(within(screen.getByRole('tabpanel', { name: /Deposit/ })).getByRole('checkbox'));
     await waitFor(() => expect(send).toBeEnabled());
   });
 
@@ -124,12 +124,12 @@ describe('the deposit form', () => {
 
   it('offers to relay when relaying is all that keeps deposits closed', async () => {
     renderPage('relay-closed');
-    expect(await screen.findByRole('button', { name: 'Relay Liquid to reopen deposits' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Relay to reopen deposits' })).toBeInTheDocument();
   });
 
   it('offers the fork-proof form when a stale fork check closes deposits', async () => {
     renderPage('fork-closed');
-    expect(await screen.findByText('Send a fork proof to reopen deposits')).toBeInTheDocument();
+    expect(await screen.findByText('Reopen with a fork proof')).toBeInTheDocument();
   });
 });
 
@@ -139,13 +139,19 @@ describe('redeem step 2', () => {
     await user.click(screen.getByRole('tab', { name: /Redeem/ }));
     await screen.findByText('2,663,990');
     await user.type(screen.getByLabelText('Ethereum address'), ACCOUNT_CHECKSUMMED);
-    await user.type(screen.getByLabelText('Amount to redeem, in bridge asset'), '0.001');
+    await user.type(screen.getByLabelText('Bridge asset amount'), '0.001');
     const script = await screen.findByLabelText('Burn script');
     expect(script.textContent).toMatch(/^6a46/);
     expect(script.textContent).toMatch(new RegExp(`${ACCOUNT_CHECKSUMMED.slice(2).toLowerCase()}$`));
-    expect(screen.queryByText(/In Humid's approval/)).toBeNull();
-    await user.type(screen.getByLabelText(/Humid's unconfidential address/), DEPOSIT_ADDRESS);
-    expect(await screen.findByText(/In Humid's approval, sign only if Output 0 shows no address, with "100000 · /)).toBeInTheDocument();
+    const panel = screen.getByRole('tabpanel', { name: /Redeem/ });
+    expect(panel.querySelector('.approval')).toBeNull();
+    await user.type(screen.getByLabelText("Claim's Humid address"), DEPOSIT_ADDRESS);
+    await waitFor(() => expect(panel.querySelector('.approval')).not.toBeNull());
+    const approval = panel.querySelector('.approval')!;
+    expect(approval).toHaveTextContent('100000');
+    expect(approval).toHaveTextContent(ASSET_DISPLAY);
+    expect(approval).toHaveTextContent(script.textContent!);
+    expect(approval).toHaveTextContent('500');
     expect(screen.getByRole('button', { name: 'Send with Humid' })).toBeEnabled();
   });
 });

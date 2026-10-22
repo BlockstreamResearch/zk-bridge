@@ -14,27 +14,25 @@ const lbtc = () => displayHex(hexToBytes(LIQUID_TESTNET_LBTC));
 export const HUMID_FEE = { sats: FEE_SATS, btc: formatUnits(FEE_SATS, 8), minCoin: formatUnits(FEE_SATS + MIN_CHANGE_SATS, 8), change: MIN_CHANGE_SATS };
 
 export function burnApproval(t: TargetState, units: bigint): string {
-  // Humid lists an OP_RETURN output with an empty address line; its script ends with the recipient's 40 hex digits.
-  const output0 = `Output 0 shows no address, with "${units} · ${t.assetDisplay}" and "Script: ${bytesToHex(t.burn.scriptPubKey)}", `
-    + `which starts with 6a46 (OP_RETURN) and ends with the recipient ${t.burn.recipient.slice(2)}`;
-  return `In Humid's approval, sign only if ${output0}, and if "Wallet net change" shows "-${units} · ${t.assetDisplay}" `
-    + `and "-${FEE_SATS} · ${lbtc()}", the fee. If anything differs, decline.`;
+  return `Check Humid: Output 0 has no address, ${units} · ${t.assetDisplay}, and Script: ${bytesToHex(t.burn.scriptPubKey)}. `
+    + `Recipient: ${t.burn.recipient}. Wallet net change: -${units} · ${t.assetDisplay} and -${FEE_SATS} · ${lbtc()} for the fee. `
+    + 'Decline if anything differs.';
 }
 
 export function updateApproval(plan: UpdatePlan): string {
   const sats = plan.update.fee.sats;
-  return `In Humid's approval, the "Requested signing inputs" section must name only Input 1 at ${plan.feeAddress}; Output 0 shows ${plan.successorAddress}, `
-    + `"Confidential amount unavailable · Confidential asset unavailable" and "Script: ${bytesToHex(plan.update.successor.script)}"; `
-    + `Output 1 (fee) shows "${sats} · ${lbtc()}"; and "Wallet net change" shows "-${sats} · ${lbtc()}". If anything differs, decline.`;
+  return `Check Humid: Requested signing inputs must contain only Input 1 at ${plan.feeAddress}. `
+    + `Output 0: ${plan.successorAddress}, "Confidential amount unavailable · Confidential asset unavailable", Script: ${bytesToHex(plan.update.successor.script)}. `
+    + `Output 1 fee: ${sats} · ${lbtc()}. Wallet net change: -${sats} · ${lbtc()}. Decline if anything differs.`;
 }
 
 export function claimApproval(plan: ClaimPlan): string {
   const c = plan.claim;
   const asset = displayHex(c.mint.asset);
   const sats = c.fee.sats;
-  return `In Humid's approval, the "Requested signing inputs" section must name only Input 1 at ${plan.feeAddress}; Output 0 shows ${plan.successorAddress}, `
-    + `"Confidential amount unavailable · Confidential asset unavailable" and "Script: ${bytesToHex(c.successor.script)}"; `
-    + `Output 1 shows ${c.mint.address ? `${c.mint.address}, ` : ''}"${c.mint.units} · ${asset}" and "Script: ${bytesToHex(c.mint.script)}"; `
-    + `Output 2 (fee) shows "${sats} · ${lbtc()}"; and "Wallet net change" shows "-${sats} · ${lbtc()}", and "${c.mint.units} · ${asset}" as well `
-    + 'if the claim pays this Humid wallet. If anything differs, decline.';
+  return `Check Humid: Requested signing inputs must contain only Input 1 at ${plan.feeAddress}. `
+    + `Output 0: ${plan.successorAddress}, "Confidential amount unavailable · Confidential asset unavailable", Script: ${bytesToHex(c.successor.script)}. `
+    + `Output 1: ${c.mint.address ? `${c.mint.address}, ` : ''}${c.mint.units} · ${asset}, Script: ${bytesToHex(c.mint.script)}. `
+    + `Output 2 fee: ${sats} · ${lbtc()}. Wallet net change: -${sats} · ${lbtc()}, plus ${c.mint.units} · ${asset} if this wallet receives the claim. `
+    + 'Decline if anything differs.';
 }

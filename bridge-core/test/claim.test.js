@@ -408,7 +408,7 @@ test('prepareClaim checks the manifest and the chain before Humid; sendClaim che
   assert.deepEqual(steps, [
     'Checking on Liquid that the claim is unsent and its coins unspent…',
     'Approve the connection to this page in Humid, if it asks…',
-    'Check the claim in Humid within 30 seconds, then sign and send it there…',
+    'Review the claim in Humid, then sign and send…',
   ]);
 
   // Sent meanwhile, by this page or anyone: nothing is asked of Humid again.

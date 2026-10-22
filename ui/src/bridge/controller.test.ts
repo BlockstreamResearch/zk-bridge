@@ -68,15 +68,15 @@ describe('reading the published instance', () => {
     expect(s().bridge).toBeNull();
     expect(s().bridgeError).toMatch(/code hash is not the instances\/fixture-instance\/ record's/);
     expect(methods(f)).not.toContain('eth_call');
-    expect(derive.notice(s())).toMatch(/Do not send it anything/);
+    expect(derive.notice(s())).toMatch(/Do not send funds/);
   });
 
   it('with no published instance, reads no escrow at all', async () => {
     const { f, s } = await started('no-instance');
     expect(methods(f)).not.toContain('eth_getCode');
     expect(methods(f)).not.toContain('eth_call');
-    expect(derive.notice(s())).toMatch(/No instance of this bridge is published yet/);
-    expect(derive.checkRows(s())).toEqual([{ ok: null, text: 'No bridge instance is published yet.' }]);
+    expect(derive.notice(s())).toMatch(/No published bridge instance/);
+    expect(derive.checkRows(s())).toEqual([{ ok: null, text: 'No published bridge instance.' }]);
   });
 
   it('does not read through a disconnected wallet, and asks to connect', async () => {
@@ -89,8 +89,8 @@ describe('reading the published instance', () => {
     const { s } = await started('liquid-down');
     expect(s().bridge).not.toBeNull();
     expect(s().bootstrap?.unavailable).toBe(true);
-    expect(derive.notBurnable(s())).toMatch(/did not serve the bridge's bootstrap/);
-    expect(derive.notice(s())).toMatch(/Liquid testnet data is unavailable/);
+    expect(derive.notBurnable(s())).toMatch(/Bootstrap unavailable/);
+    expect(derive.notice(s())).toMatch(/Liquid data unavailable/);
   });
 
   it('explains which admission rule closes deposits, and which action reopens them', async () => {

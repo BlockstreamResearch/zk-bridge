@@ -10,8 +10,7 @@ import { RedeemPanel } from '../components/RedeemPanel';
 import { Route } from '../components/Route';
 import { ChecksPanel, SettingsPanel } from '../components/Sidebar';
 import { TrustPanel } from '../components/TrustPanel';
-import { ExtLink } from '../components/primitives';
-import { TAKEOVER } from '../content/links';
+import { ManualGuide } from '../components/ManualGuide';
 
 type Tab = 'deposit' | 'redeem' | 'activity';
 const TABS: { id: Tab; label: string; sub: string }[] = [
@@ -74,12 +73,17 @@ export function App() {
               <ActivityPanel onClaim={claim.open} />
             </section>
           </div>
+          <ManualGuide onClaim={claim.open} onRedeem={() => {
+            select('redeem', true);
+            document.getElementById('main')?.scrollIntoView?.({ block: 'start' });
+          }} onUpdate={() => {
+            const panel = document.getElementById('update') as HTMLDetailsElement | null;
+            if (panel) { panel.open = true; panel.scrollIntoView?.({ block: 'start' }); }
+          }} />
           <section className="sends" aria-labelledby="sends-title">
             <div className="sends-head">
               <h2 id="sends-title">Finish a deposit yourself</h2>
-              <p className="hint">For a deposit still waiting on Liquid. An update proves finalized deposits, then a claim pays each one, in any order; if
-                an update already covers yours, only its claim is left. Build either on your computer with the repository tools
-                (<ExtLink href={TAKEOVER}>the README quick guide</ExtLink>), then load the file below and Humid pays only the fee.</p>
+              <p className="hint">Anyone can prove and claim deposits. <a href="#guide">Follow the steps</a>, then build and sign below.</p>
             </div>
             <UpdatePanel />
             <ClaimPanel panelRef={claim.panelRef} fileRef={claim.fileRef} />

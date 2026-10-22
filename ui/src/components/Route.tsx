@@ -5,14 +5,14 @@
 const ROUTES = {
   deposit: {
     label: 'Route: from Ethereum Sepolia (SepETH) to Liquid testnet (the bridge asset). Liquid verifies an SP1 proof that Sepolia finalized the deposit.',
-    from: { chain: 'eth', name: 'Ethereum Sepolia', asset: 'You lock SepETH' },
-    to: { chain: 'liquid', name: 'Liquid testnet', asset: 'You receive the bridge asset' },
+    from: { chain: 'eth', name: 'Ethereum Sepolia', asset: 'Lock SepETH' },
+    to: { chain: 'liquid', name: 'Liquid testnet', asset: 'Receive bridge asset' },
     proof: 'Liquid checks a proof of Sepolia finality',
   },
   redeem: {
     label: 'Route: from Liquid testnet (the bridge asset) to Ethereum Sepolia (SepETH). Ethereum verifies Liquid\'s signed block headers and the burn\'s Merkle proof.',
-    from: { chain: 'liquid', name: 'Liquid testnet', asset: 'You burn the bridge asset' },
-    to: { chain: 'eth', name: 'Ethereum Sepolia', asset: 'You receive SepETH' },
+    from: { chain: 'liquid', name: 'Liquid testnet', asset: 'Burn bridge asset' },
+    to: { chain: 'eth', name: 'Ethereum Sepolia', asset: 'Receive SepETH' },
     proof: 'Ethereum checks Liquid\'s signed headers',
   },
 } as const;

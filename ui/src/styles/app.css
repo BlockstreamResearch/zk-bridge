@@ -1099,6 +1099,17 @@ input[type="file"] {
 .aside-form[open] > :not(summary) {
   animation: fade 0.3s var(--ease) both;
 }
+.fee-picker {
+  min-width: 0;
+  margin-inline: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.fee-picker > legend {
+  padding: 0 6px;
+  font: 600 14px/1.4 var(--sans);
+}
 .wallet-box {
   margin-top: 16px;
   max-width: 620px;

@@ -14,7 +14,7 @@ export function ChecksPanel() {
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
           <span id="checks-title">Bridge checks</span>
         </summary>
-        <p className="ledger-key"><Seal ok={true} /> checked by this page <Seal ok={null} /> not checked here</p>
+        <p className="ledger-key"><Seal ok={true} /> checked <Seal ok={null} /> not checked</p>
         <ul className="ledger-rows">
           {rows.map((r, i) => (
             <li key={i} data-ok={r.ok === null ? 'none' : String(r.ok)}><Seal ok={r.ok} /><span>{r.text}</span></li>
@@ -41,16 +41,16 @@ function SettingsForm() {
       setBusy(false);
     }}>
       <Field label="Liquid testnet Esplora API" inputMode="url" value={esplora} onChange={(e) => setEsplora(e.target.value)} error={errors.esplora}
-        help="Where the page reads Liquid data: blocks for relaying, burns and the bootstrap. It re-checks every transaction against its txid, and the escrow checks every relayed header." />
+        help="Source for Liquid blocks and transactions. The page checks transaction IDs; the escrow checks relayed headers." />
       {/* Plain text with a URL keyboard, not type="url": the browser's own validation would stop the form before
           parseSettings, whose error says what is wrong without repeating the URL. */}
       <Field label="Ethereum Sepolia RPC (optional)" inputMode="url" placeholder="Empty: read through your wallet" value={ethRpc}
         onChange={(e) => setEthRpc(e.target.value)} error={errors.ethRpc}
-        help="An https JSON-RPC URL, or http on this computer, for every Sepolia read: the escrow, receipts, finality. It is saved only once it answers with Sepolia's chain id, and only in this browser; the page shows it nowhere else, since such URLs often hold an API key. Your wallet still signs and sends every transaction. With it, the page reads the bridge, and Humid can burn, without a connected wallet." />
-      <p className="help">The bridge instance itself is fixed by this page's published source; no setting or link changes it.</p>
+        help="Use HTTPS, or local HTTP. Saved only in this browser after checking the network. Enables reads and Humid burns without an Ethereum wallet connection; your wallet still signs Ethereum transactions." />
+      <p className="help">Settings cannot change the bridge instance.</p>
       <div className="actions">
         <Button type="submit" disabled={busy}>{busy ? 'Checking…' : 'Save'}</Button>
-        <Button variant="ghost" onClick={() => void c.resetSettings()}>Use the defaults</Button>
+        <Button variant="ghost" onClick={() => void c.resetSettings()}>Reset defaults</Button>
       </div>
     </form>
   );

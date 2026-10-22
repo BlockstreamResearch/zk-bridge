@@ -291,7 +291,7 @@ export async function sendClaim({ humid, esplora, plan, progress = () => {}, dea
   await unsent(esplora, plan.claim);
   progress('Approve the connection to this page in Humid, if it asks…');
   await humidSession(humid);
-  progress('Check the claim in Humid within 30 seconds, then sign and send it there…');
+  progress('Review the claim in Humid, then sign and send…');
   const txid = await signAndBroadcast(humid, plan, deadlineMs);
   if (txid !== plan.txid) {
     throw Object.assign(new Error(`Humid reports sending ${txid}, not the claim ${plan.txid}`), { sent: 'maybe', reported: txid });

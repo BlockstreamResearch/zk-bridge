@@ -1,4 +1,5 @@
 // The bridge page's state, independent of React. Saved journeys are scoped to the published escrow.
+import type { BuildTransaction } from './builder';
 import type { Instance, Settings } from '@bridge/core/config.js';
 import type { AdmissionReads, BurnTarget } from '@bridge/core/lib/bridge.js';
 import type { ClaimPlan } from '@bridge/core/lib/claim.js';
@@ -83,6 +84,8 @@ export interface BridgeEnv {
   confirm(message: string): boolean;
   copy(text: string): Promise<void>;
   pollMs: number;
+  /** Off-thread Rust compiler; replaced by deterministic stand-ins in controller tests. */
+  buildTransaction?: BuildTransaction;
   /** The pause between Liquid API lookups of a transaction Humid reports sending, which the API can lag; 3000 if unset. */
   liquidLagMs?: number;
 }
@@ -164,12 +167,15 @@ export type LiquidSent = LiquidSeen & { txid: string; said: string | null; check
 
 export interface LiquidSend<P> {
   busy: boolean;
+  building?: boolean;
   note: string;
   plan: P | null;
   sent: LiquidSent | null;
   fileError: string;
   /** Why the store file loaded for an update was refused. */
   storeError: string;
+  /** Successor store from a locally prepared proof bundle, available for download and sharing. */
+  storeText?: string;
   error: string;
 }
 

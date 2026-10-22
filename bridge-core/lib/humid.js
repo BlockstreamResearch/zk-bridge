@@ -152,7 +152,7 @@ export function selectClaims(utxos, assetDisplay, units, skip = new Set()) {
       throw new Error(skip.size ? 'this address holds no bridge asset openly that this page has not just sent. Check step 3 for that send'
         : 'this address holds no bridge asset openly. Give the address the claim paid (in Humid, Receive, then Unconfidential), and wait until its deposit shows Claimed');
     }
-    if (all >= units) throw new Error('the claim to this address has not confirmed on Liquid yet; try again after the next block, about a minute');
+    if (all >= units) throw new Error('the claim has not confirmed on Liquid yet; retry after confirmation');
     throw new Error(`this address holds ${formatUnits(all, 8)} of the bridge asset openly; redeem at most that`);
   }
   if (picked.length > MAX_CLAIMS) throw new Error(`that amount needs ${picked.length} claim coins; redeem less at a time (at most ${MAX_CLAIMS} coins per send)`);
@@ -319,8 +319,7 @@ export function humidError(e) {
   const reason = e?.data?.reason;
   // Humid 1.1.3 answers a prompt left open for 30 seconds exactly as it answers a decline (confirmations/index.ts).
   if (reason === 'user_rejected') {
-    return 'Humid did not get your approval: you declined, or its prompt closed itself after 30 seconds. Nothing was sent. '
-      + 'To try again, read the line below the button first, then approve in Humid within 30 seconds.';
+    return 'Humid did not receive approval. Nothing was sent. Reopen the request to try again.';
   }
   const what = (e && e.message) || String(e);
   if (e?.sent === 'no' && e.stage === 'review') {
@@ -393,7 +392,7 @@ export async function burnWithHumid({ humid, esplora, asset, units, burnScript, 
   if (burns.length !== 1 || burns[0].vout !== 0 || !burns[0].usable || burns[0].units !== units) {
     throw new Error('the burn built here does not pay the burn script as the escrow requires; nothing was sent. Report this');
   }
-  progress('Check the burn in Humid within 30 seconds, then sign and send it there…');
+  progress('Review the burn in Humid, then sign and send…');
   onSign(plan.spends);
   return { txid: await signAndBroadcast(humid, plan, deadlineMs), plan };
 }

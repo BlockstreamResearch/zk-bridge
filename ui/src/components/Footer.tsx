@@ -18,18 +18,17 @@ export function Footer({ onTab }: { onTab: (tab: 'deposit' | 'redeem' | 'activit
         {inst && <ExtLink href={`${DEFAULTS.liquidExplorer}/tx/${encodeURIComponent(inst.bootstrap)}`}>Bootstrap on Liquid ↗</ExtLink>}
       </nav>
       <dl className="foot-facts">
-        <div><dt>Network</dt><dd>Sepolia ⇄ liquidtestnet</dd></div>
+        <div><dt>Network</dt><dd>Sepolia ⇄ Liquid testnet</dd></div>
         <div><dt>Escrow</dt><dd><code className="mono">{inst?.escrow ?? '—'}</code></dd></div>
         <div><dt>Bridge asset</dt><dd><code className="mono">{s.bridge?.assetDisplay ?? '—'}</code></dd></div>
         <div><dt>Liquid confirmations</dt><dd>{s.bridge ? String(s.bridge.minConf) : '—'}</dd></div>
-        <div><dt>Esplora base URL</dt><dd><code className="mono">{s.settings.esplora}</code></dd></div>
+        <div><dt>Liquid API</dt><dd><code className="mono">{s.settings.esplora}</code></dd></div>
         {/* Not the URL itself, which may hold an API key. */}
-        <div><dt>Sepolia reads</dt><dd>{s.settings.ethRpc ? 'The RPC in Settings' : 'Your wallet'}</dd></div>
-        <div><dt>Instance record</dt><dd><code className="mono">{inst?.record ?? 'none published yet'}</code></dd></div>
+        <div><dt>Sepolia reads</dt><dd>{s.settings.ethRpc ? 'Custom RPC' : 'Your wallet'}</dd></div>
+        <div><dt>Instance record</dt><dd><code className="mono">{inst?.record ?? 'none'}</code></dd></div>
       </dl>
-      <p>Contracts: <code className="mono">contracts/solidity/contracts/BridgeEscrow.sol</code> and <code className="mono">contracts/solidity/contracts/LiquidLightClient.sol</code> on
-        Sepolia; on Liquid, the claim leaf <code className="mono">contracts/simplicity/simf/claim.simf</code> and the SP1 update leaf that the instance record
-        names. Read them before you trust them.</p>
+      <p>Code: <code className="mono">BridgeEscrow.sol</code>, <code className="mono">LiquidLightClient.sol</code>,
+        and the Liquid claim and update covenants in the instance record.</p>
     </footer>
   );
 }

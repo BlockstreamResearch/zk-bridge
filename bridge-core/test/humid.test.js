@@ -344,7 +344,7 @@ test('burnWithHumid connects, takes a fee coin, and asks Humid to sign and broad
   assert.notEqual(sent.txid, sent.unsignedTxid);
   assert.equal(txid, sent.txid);
   assert.deepEqual(steps, ['Finding the claim on Liquid testnet…', 'Approve the connection to this page in Humid, if it asks…',
-    'Let Humid share its coins with this page, if it asks…', 'Check the burn in Humid within 30 seconds, then sign and send it there…']);
+    'Let Humid share its coins with this page, if it asks…', 'Review the burn in Humid, then sign and send…']);
 
   // A session that can sign already: no second connection prompt.
   const again = fakeHumid({ session: { [HUMID_SCOPE]: { methods: ['getUTXOs', 'signPset'] } } });
@@ -381,9 +381,7 @@ test('nothing reaches Humid\'s signer without a claim and a fee coin; refusals a
   const fails = (reason, code = -32000) => fakeHumid({ sign: () => { throw Object.assign(new Error(`Humid says ${reason}`), { code, data: { reason } }); } });
   const declined = await run(fails('user_rejected')).catch((x) => x);
   assert.equal(declined.sent, 'no');
-  // Humid answers a decline and a prompt that closed itself after 30 seconds alike, so the page names both.
-  assert.equal(humidError(declined), 'Humid did not get your approval: you declined, or its prompt closed itself after 30 seconds. Nothing was sent. '
-    + 'To try again, read the line below the button first, then approve in Humid within 30 seconds.');
+  assert.equal(humidError(declined), 'Humid did not receive approval. Nothing was sent. Reopen the request to try again.');
   const invalid = await run(fails('invalid_pset_request', -32002)).catch((x) => x);
   assert.equal(invalid.sent, 'no', 'Humid refuses an invalid request before the user can confirm');
   assert.equal(humidError(invalid), 'Humid: Humid says invalid_pset_request');

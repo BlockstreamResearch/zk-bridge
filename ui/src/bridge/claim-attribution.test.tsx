@@ -68,7 +68,7 @@ describe('Activity attributes a claim only to the deposit whose index it paid', 
     expect(row(4).proofTxid).toBeUndefined();
     expect(screen.getByText('Ready to claim')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Claim with Humid' })).toBeVisible();
-    expect(screen.getByText('just claim-unsigned <Humid fee txid> <output number> 3')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Prepare proof' })).toHaveAttribute('href', '#guide');
     expect(document.querySelector(`a[href$="/tx/${txid('b')}"]`)).not.toBeNull();
   });
 
@@ -102,8 +102,8 @@ describe('Activity attributes a claim only to the deposit whose index it paid', 
       expect(row(i).claimWhy).toMatch(/a claim on Liquid could not be attributed to a deposit/);
     }
     expect(screen.getAllByText('Unresolved')).toHaveLength(2);
-    expect(screen.getAllByText(/Claimed or not, this page cannot tell yet/)).toHaveLength(2);
-    expect(screen.getAllByText(/^Claim on Liquid: not known whether a claim paid this deposit$/)).toHaveLength(2);
+    expect(screen.getAllByText(/Claim status unknown\./)).toHaveLength(2);
+    expect(screen.getAllByText(/^Claim status unknown$/)).toHaveLength(2);
     expect(screen.queryByText('Final')).toBeNull();
   });
 

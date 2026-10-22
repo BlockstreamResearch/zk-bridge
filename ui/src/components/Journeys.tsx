@@ -3,13 +3,11 @@
 // React keeps each row's DOM element across polls, so keyboard focus stays where the reader left it.
 import { DEFAULTS } from '@bridge/core/config.js';
 import { UNIT_WEI, formatUnits } from '@bridge/core/lib/bridge.js';
-import { type Wait, depositWait, duration } from '@bridge/core/lib/waits.js';
 import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { ready } from '../bridge/derive';
 import { short } from '../bridge/format';
 import { actionable, label, settled } from '../bridge/journeys';
-import { REPO, TAKEOVER } from '../content/links';
 import type { DepositJourney, Journey, RedeemJourney } from '../bridge/types';
 import { Button, ExtLink, Pill } from './primitives';
 
@@ -66,53 +64,23 @@ function JourneyRow({ j, kind, title, steps, extras, actions }: {
 function StaleNote({ j, waits }: { j: Journey; waits?: string }) {
   const m = j.lastError!.charAt(0).toUpperCase() + j.lastError!.slice(1);
   return (
-    <p className="warn"><b>Status may be out of date. </b>
-      {m}{/[.!?]$/.test(m) ? '' : '.'} This page keeps checking{waits ? `; ${waits} until a check succeeds` : ''}.</p>
+    <p className="warn"><b>Status may be stale. </b>
+      {m}{/[.!?]$/.test(m) ? '' : '.'} Retrying{waits ? `; ${waits} until verified` : ''}.</p>
   );
 }
 
-/**
- * What a deposit is waiting for, how long that usually takes (lib/waits.js), and how the depositor can finish it.
- * Nothing here promises a time: a claim may need someone to run a prover, which this page cannot.
- */
-function WaitNote({ j, wait }: { j: DepositJourney; wait: Wait }) {
-  const { stage, elapsed, late } = wait;
-  const sent = `Sent ${duration(elapsed)} ago. `;
-  if (stage === 'confirm') return <p className="help">{sent}The claim is on Liquid; it usually confirms in the next block, about a minute.</p>;
-  if (stage === 'finality' && !late) {
-    return <p className="help">{sent}Sepolia usually finalizes a block 13 to 20 minutes after it is mined. There is nothing to do meanwhile; this page moves on when it sees the block final.</p>;
-  }
-  if (stage === 'finality') {
+/** The next action depends on chain state, without predicting how long it takes. */
+function WaitNote({ j }: { j: DepositJourney }) {
+  if (j.status === 'claiming') return <p className="help">Claim sent. Waiting for Liquid confirmation.</p>;
+  if (j.status === 'mined') {
     return (
-      <div className="warn wait">
-        <p><b>Not final after {duration(elapsed)}. </b>Sepolia usually takes 13 to 20 minutes. Either Sepolia is not finalizing, which happens on test networks, or
-          your wallet's Sepolia RPC is behind. While the deposit remains on Sepolia's current chain, your ETH is locked in the escrow; Liquid waits for finality before a claim.</p>
-        <p>Compare Sepolia's latest finalized block on a beacon explorer such as <ExtLink href="https://sepolia.beaconcha.in">sepolia.beaconcha.in</ExtLink> with
-          block {j.block?.toLocaleString('en')}. If Sepolia is finalizing, switch your wallet to another Sepolia RPC. This page moves on by itself.</p>
-      </div>
+      <p className="help">Waiting for Ethereum finality. If progress stalls, compare block {j.block?.toLocaleString('en') ?? 'status'} with
+        {' '}<ExtLink href="https://sepolia.beaconcha.in">Sepolia finality</ExtLink> and check your RPC.</p>
     );
   }
-  const usual = 'With the operator at work, deposits are usually claimed 30 minutes to 2 hours after they are sent: an SP1 proof (about 7 minutes on '
-    + 'the operator\'s machine), then an update and a claim on Liquid, about a minute each. No prover service runs for this instance, and no time is promised.';
-  const selfServe = ' You can prove and claim it yourself with the repository tools. This page cannot run the prover; use the guide button below for the local steps.';
-  if (!late) return <p className="help">{sent}{usual}{selfServe}</p>;
-  const i = j.index === null || j.index === undefined ? null : Number(j.index);
-  const order = `Claims may go in any order: once an update has proven ${i === null ? 'your deposit' : `deposit #${i}`}, no other unclaimed `
-    + 'deposit holds its claim back.';
-  return (
-    <div className="warn wait">
-      <p><b>No claim after {duration(elapsed)}. </b>That is longer than usual: the operator may be away, or a proof may have failed. Your SepETH remains
-        locked in the escrow with no refund path. A claim still depends on the verification and availability assumptions above. What you can do:</p>
-      <ul>
-        <li>Wait. The next proof anyone makes covers every deposit before it, yours included.</li>
-        <li>{order}</li>
-        <li>Ask the operator, through the <ExtLink href={REPO}>project's repository</ExtLink>.</li>
-        <li>Prove and claim it yourself. The Liquid covenant accepts both from anyone, but this page cannot run them. You need a computer with Docker and the
-          SP1 6.8.1 toolchain, a Sepolia beacon node and execution RPC, a little tL-BTC for fees, and a clone of the repository. If a later update has already
-          proven your deposit, only the claim is left, and that needs no prover. Use the guide button below.</li>
-      </ul>
-    </div>
-  );
+  if (j.status !== 'finalized') return null;
+  return <p className="help">Finalized on Ethereum. You or anyone else must prove it on Liquid, then claim it. Until then, SepETH stays
+    in escrow with no refund.</p>;
 }
 
 /**
@@ -123,15 +91,14 @@ function UnresolvedNote({ j }: { j: DepositJourney }) {
   const why = j.claimWhy ? j.claimWhy.charAt(0).toUpperCase() + j.claimWhy.slice(1) : 'A claim on Liquid could not be attributed to a deposit';
   return (
     <div className="warn">
-      <p><b>Claimed or not, this page cannot tell yet. </b>{why}. A claim pays only the script and amount its deposit named, so check the receiving
-        wallet{j.address ? <> or <ExtLink href={`${DEFAULTS.liquidExplorer}/address/${j.address}`}>its address on a Liquid explorer</ExtLink></> : ''}. This page
-        keeps checking, and shows the deposit claimed once a claim is shown to have paid it.</p>
+      <p><b>Claim status unknown. </b>{why}. Check your wallet{j.address
+        ? <> or <ExtLink href={`${DEFAULTS.liquidExplorer}/address/${j.address}`}>Liquid address</ExtLink></>
+        : ''}. Tracking continues until a claim can be matched to this deposit.</p>
     </div>
   );
 }
 
 function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) {
-  const s = useBridge();
   const c = useController();
   const order = ['submitted', 'mined', 'finalized', 'claiming', 'claimed'];
   const at = j.status === 'unresolved' || j.status === 'proven' ? 3 : order.indexOf(j.status);
@@ -140,18 +107,17 @@ function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) 
   const liq = DEFAULTS.liquidExplorer;
   const steps: [StepState, ReactNode][] = [
     [stepState(at >= 1, at === 0, failed), <>Sent on Sepolia <ExtLink href={`${eth}/tx/${j.txHash}`}>{short(j.txHash)}</ExtLink></>],
-    [stepState(at >= 2, at === 1), `Mined${j.block ? ` in block ${j.block.toLocaleString('en')}` : ''}${j.index != null ? `, deposit #${j.index}` : ''}; ${at >= 2 ? 'final on Ethereum' : 'waiting for Ethereum finality'}`],
+    [stepState(at >= 2, at === 1), `${at >= 2 ? 'Finalized' : 'Waiting for finality'}${j.block ? ` in block ${j.block.toLocaleString('en')}` : ''}${j.index != null ? `, deposit #${j.index}` : ''}`],
     [stepState(at >= 3, at === 2), j.proofTxid
       ? <>Proven on Liquid <ExtLink href={`${liq}/tx/${j.proofTxid}`}>{short(j.proofTxid)}</ExtLink></>
-      : j.status === 'unresolved' ? 'Final on Ethereum; checking the claim on Liquid'
-        : at >= 3 ? 'Final on Ethereum; proof accepted on Liquid'
-        : 'Final on Ethereum; waiting for a proof update on Liquid. Anyone can submit it.'],
+      : j.status === 'unresolved' ? 'Checking the Liquid claim'
+        : at >= 3 ? 'Proof accepted on Liquid'
+        : 'Waiting for a proof update on Liquid'],
     [stepState(at >= 4, at === 3), j.claimTxid
       ? <>Claimed on Liquid <ExtLink href={`${liq}/tx/${j.claimTxid}`}>{short(j.claimTxid)}</ExtLink>{j.status === 'claiming' ? ' (confirming)' : ''}</>
-      : j.status === 'unresolved' ? 'Claim on Liquid: not known whether a claim paid this deposit'
+      : j.status === 'unresolved' ? 'Claim status unknown'
         : j.status === 'proven' ? 'Ready to claim on Liquid' : 'Claim on Liquid'],
   ];
-  const wait = depositWait(j, s.now);
   const title = `${formatUnits(BigInt(j.wei), 18)} ETH → ${j.address ? short(j.address, 8) : `script ${short(j.script, 8)}`}`;
   return (
     <JourneyRow j={j} kind="Deposit" title={title} steps={steps}
@@ -159,18 +125,13 @@ function DepositRow({ j, onClaim }: { j: DepositJourney; onClaim: () => void }) 
         {j.error && <p className="error">{j.error}</p>}
         {j.lastError && <StaleNote j={j} />}
         {j.status === 'unresolved' && <UnresolvedNote j={j} />}
-        {j.status === 'proven' && <p className="help">The proof update is confirmed. Only the claim remains, and anyone can send it.
-          Build it with <code className="mono">just claim-unsigned &lt;Humid fee txid&gt; &lt;output number&gt; {j.index}</code>, then load
-          {' '}<code className="mono">target/takeover/claim.hex</code> using Claim with Humid below. No new proof is needed.
-          Once sent, the claim usually confirms in the next Liquid block, about a minute.</p>}
-        {wait && <WaitNote j={j} wait={wait} />}
+        {j.status === 'proven' && <p className="help">Proven on Liquid. Anyone can claim it now; no new proof is needed.</p>}
+        <WaitNote j={j} />
       </>}
       actions={<>
-        {j.status === 'finalized' && <ExtLink className="btn btn-primary" href={TAKEOVER}>Prove &amp; claim: guide ↗</ExtLink>}
-        {/* Once an update has proven the deposit, its claim can go through Humid with no fee key (the claim panel). */}
-        {j.status === 'finalized' && <Button onClick={onClaim}>Have a proven claim? Send with Humid</Button>}
+        {j.status === 'finalized' && <a className="btn btn-primary" href="#guide">Prepare proof</a>}
         {j.status === 'proven' && <Button variant="primary" onClick={onClaim}>Claim with Humid</Button>}
-        <Button variant="ghost" onClick={() => c.removeJourney(j.id)}>Remove from this list</Button>
+        <Button variant="ghost" onClick={() => c.removeJourney(j.id)}>Remove from list</Button>
       </>} />
   );
 }
@@ -185,9 +146,9 @@ function RedeemRow({ j }: { j: RedeemJourney }) {
   const steps: [StepState, ReactNode][] = [
     ['done', <>Burned on Liquid <ExtLink href={`${DEFAULTS.liquidExplorer}/tx/${j.burnTxid}`}>{`${short(j.burnTxid)}:${j.vout}`}</ExtLink></>],
     [stepState(j.status !== 'burned', j.status === 'burned'), `${Math.max(0, j.confirmations ?? 0)} of ${need} Liquid confirmations`],
-    [stepState(relayed, j.status === 'relay'), `${j.needed ? `Liquid relayed to the bridge through height ${j.needed}` : 'Liquid relayed to the bridge'}${j.status === 'relay' && s.bridge ? ` (now at ${s.bridge.lcTip})` : ''}`],
+    [stepState(relayed, j.status === 'relay'), `${j.needed ? `Liquid headers through block ${j.needed}` : 'Liquid headers relayed'}${j.status === 'relay' && s.bridge ? ` (now at ${s.bridge.lcTip})` : ''}`],
     [stepState(['submitted', 'paid'].includes(j.status), j.status === 'ready'), j.txHash
-      ? <>Redemption sent <ExtLink href={`${DEFAULTS.ethExplorer}/tx/${j.txHash}`}>{short(j.txHash)}</ExtLink></> : 'Prove and redeem on Ethereum'],
+      ? <>Redemption sent <ExtLink href={`${DEFAULTS.ethExplorer}/tx/${j.txHash}`}>{short(j.txHash)}</ExtLink></> : 'Redeem on Sepolia'],
     [stepState(j.status === 'paid', j.status === 'submitted'), `${eth} paid to ${short(payee)}${payee !== j.recipient ? `, as ${short(j.recipient)} directed` : ''}`],
   ];
   const missing = s.bridge && j.needed ? Math.max(0, j.needed - s.bridge.lcTip) : 0;
@@ -197,9 +158,8 @@ function RedeemRow({ j }: { j: RedeemJourney }) {
         {j.error && <p className="error">{j.error}</p>}
         {j.lastError && <StaleNote j={j} waits={j.status === 'ready' ? 'Redeem waits' : j.status === 'relay' ? 'relaying waits' : undefined} />}
         {actionable(j, 'relay') && s.bridge && (
-          <p className="help">Relayers keep the bridge's view of Liquid current; nobody has relayed the {missing} block{missing === 1 ? '' : 's'} this burn needs yet.
-            Anyone can, in about {Math.ceil(missing / 100)} transaction{missing > 100 ? 's' : ''} of at most 100 blocks each, checked against Liquid's block
-            signatures; the wallet estimates each one's gas.</p>
+          <p className="help">Relay {missing} missing block{missing === 1 ? '' : 's'} in {Math.ceil(missing / 100)} transaction{missing > 100 ? 's' : ''}.
+            Anyone can relay; the sender pays Sepolia gas.</p>
         )}
       </>}
       actions={<>
@@ -208,10 +168,10 @@ function RedeemRow({ j }: { j: RedeemJourney }) {
         )}
         {j.status === 'relay' && (
           <Button disabled={!ready(s) || s.relaying || !actionable(j, 'relay')} onClick={() => void c.relayFor(j.id)}>
-            {s.relaying ? 'Relaying…' : 'Relay the missing blocks'}
+            {s.relaying ? 'Relaying…' : 'Relay missing blocks'}
           </Button>
         )}
-        <Button variant="ghost" onClick={() => c.removeJourney(j.id)}>Remove from this list</Button>
+        <Button variant="ghost" onClick={() => c.removeJourney(j.id)}>Remove from list</Button>
       </>} />
   );
 }
@@ -235,9 +195,9 @@ export function ActivityPanel({ onClaim }: { onClaim: () => void }) {
       <div className="panel-head">
         <h2 className="tray-title">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4" /></svg>
-          Your bridge activity
+          Bridge activity
         </h2>
-        <p className="hint">Saved in this browser; tracking resumes after a reload.</p>
+        <p className="hint">Saved in this browser.</p>
       </div>
       {journeys.length
         ? <>
@@ -245,7 +205,7 @@ export function ActivityPanel({ onClaim }: { onClaim: () => void }) {
           <div className="table-head" aria-hidden="true"><span>Type</span><span>Deposit #</span><span>Transfer</span><span>Started</span><span>Status</span></div>
           <JourneyList onClaim={onClaim} />
         </>
-        : <p className="empty">Nothing yet. Deposits and redemptions you start here are saved in this browser.</p>}
+        : <p className="empty">No saved deposits or redemptions.</p>}
     </>
   );
 }

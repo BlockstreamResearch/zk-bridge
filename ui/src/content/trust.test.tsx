@@ -36,8 +36,8 @@ function here(page: HTMLElement) {
 async function readTrust(scenario: Scenario = 'connected') {
   const page = renderTrust(scenario);
   await waitFor(() => {
-    expect(here(page).burn).toMatch(/A burn holds asset/);
-    expect(here(page).relay).toMatch(/behind the tip the Liquid API reports/);
+    expect(here(page).burn).toMatch(/Burn asset/);
+    expect(here(page).relay).toMatch(/behind Liquid/);
   });
   return page;
 }
@@ -60,7 +60,7 @@ describe('What you are trusting', () => {
     for (const [name, text] of Object.entries(needs)) expect(text, name).toMatch(/^Needs: \S/);
     expect(needs['prove-claim']).toMatch(/Docker[\s\S]*SP1[\s\S]*eth_getProof[\s\S]*light-client[\s\S]*tL-BTC/);
     expect(needs['fork-proof']).toMatch(/beacon node/);
-    expect(needs.burn).toMatch(/tL-BTC[\s\S]*confirmed/);
+    expect(needs.burn).toMatch(/Confirmed[\s\S]*tL-BTC/);
     // The escrow's MIN_CONFIRMATIONS is read at run time; static copy stating a count would go stale.
     expect(needs.redeem).not.toMatch(/\(\d+ on this escrow\)/);
   });
@@ -69,18 +69,18 @@ describe('What you are trusting', () => {
     const page = renderTrust();
     const costs = Object.fromEntries([...page.querySelectorAll('[data-cost]')].map((c) => [c.getAttribute('data-cost'), c.textContent ?? '']));
     expect(Object.keys(costs)).toEqual(['deposit', 'sepolia', 'burn', 'prove-claim']);
-    expect(costs.deposit).toMatch(/at least 0\.001[\s\S]*gas[\s\S]*unconfidential address/);
-    expect(costs.sepolia).toMatch(/gas, paid by whoever sends them/);
-    expect(costs.burn).toMatch(/500 sats[\s\S]*0\.00001046 tL-BTC \(fee plus 546 sats of change\), received at its confidential address and confirmed/);
-    expect(costs['prove-claim']).toMatch(/tL-BTC for the Liquid update and claim fees/);
+    expect(costs.deposit).toMatch(/At least 0\.001[\s\S]*gas[\s\S]*unblinded outputs/);
+    expect(costs.sepolia).toMatch(/sender pays Sepolia gas/);
+    expect(costs.burn).toMatch(/500 sats[\s\S]*confirmed coin[\s\S]*0\.00001046 tL-BTC[\s\S]*confidential address[\s\S]*546 sats of change/);
+    expect(costs['prove-claim']).toMatch(/tL-BTC for update and claim fees/);
   });
 
   it('describes the one bare 72-byte OP_RETURN burn', () => {
     const page = renderTrust();
     const burn = [...page.querySelectorAll('.assumptions > li')].find((li) => li.textContent?.includes('liquid-bridge-poc/burn'));
-    expect(burn?.querySelector('.here')?.textContent).toMatch(/exactly 72 bytes[\s\S]*OP_RETURN[\s\S]*chain id[\s\S]*escrow[\s\S]*recipient/);
+    expect(burn?.querySelector('.here')?.textContent).toMatch(/72 bytes[\s\S]*OP_RETURN[\s\S]*chain ID[\s\S]*escrow[\s\S]*recipient/);
     const step = page.querySelector('[data-action="burn"]')?.textContent;
-    expect(step).toMatch(/72-byte OP_RETURN[\s\S]*no address[\s\S]*ordinary Send cannot/);
+    expect(step).toMatch(/unblinded burn[\s\S]*OP_RETURN[\s\S]*Ordinary Send cannot/);
     expect(step).toMatch(/Humid/);
     expect(page.textContent).not.toMatch(/redeem address/);
   });
@@ -101,23 +101,23 @@ describe('On this instance, from its pins and what the page checked', () => {
 
     // The fixture escrow: tip 10 blocks behind Liquid's, a block timestamped 10 minutes before the fixture's noon, a
     // fork check 5 minutes old of at most an hour, a relay lag of at most six hours, deposits open for 90 days.
-    expect(h.relay).toMatch(/up to block 2,663,990, 10 blocks behind the tip the Liquid API reports; the newest is timestamped 2026-10-20 11:50 UTC\.$/);
-    expect(h['fork-proof']).toMatch(/fork check from 2026-10-20 11:55 UTC; it counts until 2026-10-20 12:55 UTC/);
+    expect(h.relay).toMatch(/through block 2,663,990, 10 blocks behind Liquid, timestamped 2026-10-20 11:50 UTC\.$/);
+    expect(h['fork-proof']).toMatch(/fork check: 2026-10-20 11:55 UTC, valid until 2026-10-20 12:55 UTC/);
     expect(h['fork-proof']).not.toMatch(/reopens/);
-    expect(h.redeem).toMatch(/pays a burn once it has 2 Liquid confirmations/);
-    expect(h.burn).toMatch(new RegExp(`A burn holds asset ${ASSET_DISPLAY.slice(0, 6)}…${ASSET_DISPLAY.slice(-6)}`));
-    expect(h['Liquid\'s block signer: one key.']).toMatch(/expects the signing script with hash 0x\w{6}…\w{6}, the one Liquid's latest block signs under\./);
-    expect(h['A light client of Liquid, relayed by anyone.']).toMatch(/DynaFed epochs of 20,160 blocks\./);
-    expect(h['Sepolia\'s fork schedule.']).toMatch(/takes no deposit after 2027-01-18 12:00 UTC\./);
-    expect(h['Someone to keep deposits open.']).toMatch(/fork check up to 1 hour old and a last relayed Liquid block up to 6 hours old; deposits are open now\./);
-    expect(h['An honest bootstrap.']).toMatch(/This page checked it against the escrow's asset/);
-    expect(h['Fixed code, no upgrade path.']).toMatch(/, and it matched\./);
-    expect(h['A burn\'s exact script.']).toMatch(/Here it names chain id 11155111 and the escrow 0x5e5e5e…5e5e5e[\s\S]*, and the asset is /);
-    expect(h['A burn\'s exact script.']).toContain(`, and the asset is ${ASSET_SHORT}`);
+    expect(h.redeem).toMatch(/requires 2 Liquid confirmations/);
+    expect(h.burn).toMatch(new RegExp(`Burn asset ${ASSET_DISPLAY.slice(0, 6)}…${ASSET_DISPLAY.slice(-6)}`));
+    expect(h['Liquid signers']).toMatch(/expects signing script hash 0x\w{6}…\w{6}\. It matches the latest Liquid block\./);
+    expect(h['Liquid checkpoint and key changes']).toMatch(/DynaFed epochs of 20,160 blocks\./);
+    expect(h['Ethereum forks']).toMatch(/closes deposits at 2027-01-18 12:00 UTC\./);
+    expect(h['Keeping deposits open']).toMatch(/fork check up to 1 hour old and relayed block up to 6 hours old\. Deposits are open\./);
+    expect(h['Bootstrap verification']).toMatch(/Bootstrap matches the escrow asset/);
+    expect(h['Fixed, unaudited code']).toMatch(/Hash matched\./);
+    expect(h['Exact burn script']).toMatch(/escrow 0x5e5e5e…5e5e5e[\s\S]*uses chain 11155111 and asset /);
+    expect(h['Exact burn script']).toContain(`and asset ${ASSET_SHORT}`);
     expect(h['prove-claim']).toMatch(/BRIDGE_INSTANCE=instances\/fixture-instance just status/);
-    expect(h['What this page reads, and this page itself.']).toMatch(/your wallet's RPC[\s\S]*Blockstream's public API[\s\S]*only the instance fixture-instance/);
+    expect(h['This site and its data sources']).toMatch(/your wallet's RPC[\s\S]*Blockstream's public API[\s\S]*Instance: fixture-instance/);
     // The fixture is served from this computer, not from the published site.
-    expect(h['What this page reads, and this page itself.']).toMatch(/This copy is not the published site named at the top of the page, so no store its record lists counts as published\./);
+    expect(h['This site and its data sources']).toMatch(/Unofficial copy; its listed stores do not count as published here\./);
 
     const hrefs = [...page.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`https://sepolia.etherscan.io/address/${ESCROW}`);
@@ -127,8 +127,8 @@ describe('On this instance, from its pins and what the page checked', () => {
 
   it('says which step now reopens deposits', async () => {
     let h = here(await readTrust('fork-closed'));
-    expect(h['fork-proof']).toMatch(/has recorded no fork check yet\. A fork proof now reopens deposits\./);
-    expect(h['Someone to keep deposits open.']).toMatch(/deposits are closed now/);
+    expect(h['fork-proof']).toMatch(/has no fork check\. A fork proof now reopens deposits\./);
+    expect(h['Keeping deposits open']).toMatch(/Deposits are closed/);
     cleanup();
     h = here(await readTrust('relay-closed'));
     expect(h.relay).toMatch(/Relaying now reopens deposits\./);
@@ -138,13 +138,13 @@ describe('On this instance, from its pins and what the page checked', () => {
     const page = renderTrust('bad-code');
     await waitFor(() => expect(page.textContent).toMatch(/so this page shows none of its settings/));
     const h = here(page);
-    for (const name of ['relay', 'fork-proof', 'redeem', 'Sepolia\'s fork schedule.', 'Someone to keep deposits open.']) {
+    for (const name of ['relay', 'fork-proof', 'redeem', 'Ethereum forks', 'Keeping deposits open']) {
       expect(h[name], name).toMatch(/The escrow is not usable: its code hash is not the instances\/fixture-instance\/ record's \w+…\w+, so this page shows none of its settings\./);
     }
-    expect(h.burn).toMatch(/shows no burn until[\s\S]*Burn nothing until then\./);
-    expect(h['Fixed code, no upgrade path.']).toMatch(/so the page uses it for nothing\./);
-    expect(h['An honest bootstrap.']).toMatch(/does not check it while it refuses the escrow/);
-    expect(page.textContent).not.toMatch(/once it has \d|epochs of \d|takes no deposit after|A burn holds asset|the asset is/);
+    expect(h.burn).toMatch(/Burns are disabled until[\s\S]*Burn nothing until verification passes\./);
+    expect(h['Fixed, unaudited code']).toMatch(/Rejected:/);
+    expect(h['Bootstrap verification']).toMatch(/Not checked: escrow rejected/);
+    expect(page.textContent).not.toMatch(/requires \d+ Liquid confirmations|epochs of \d|closes deposits at|Burn asset|and asset/);
     expect(page.textContent).not.toMatch(ASSET_PREFIX);
     expect(page.innerHTML).toContain(`https://sepolia.etherscan.io/address/${ESCROW}`);
   });
@@ -153,9 +153,9 @@ describe('On this instance, from its pins and what the page checked', () => {
     const page = renderTrust('disconnected');
     const h = here(page);
     expect(h.redeem).toMatch(/Connect a wallet on Sepolia, or set a Sepolia RPC in Settings/);
-    expect(h['An honest bootstrap.']).toMatch(/checks it once it has read the escrow/);
-    expect(h['Fixed code, no upgrade path.']).toMatch(/pins\. Anyone/);
-    expect(page.textContent).not.toMatch(/once it has \d|takes no deposit after|A burn holds asset/);
+    expect(h['Bootstrap verification']).toMatch(/Waiting to read the escrow/);
+    expect(h['Fixed, unaudited code']).toMatch(/Not checked yet\./);
+    expect(page.textContent).not.toMatch(/requires \d+ Liquid confirmations|closes deposits at|Burn asset/);
     expect(page.textContent).not.toMatch(ASSET_PREFIX);
   });
 
@@ -163,7 +163,7 @@ describe('On this instance, from its pins and what the page checked', () => {
     const page = renderTrust('connected', (f) => f.storage.set(SETTINGS_KEY, JSON.stringify({
       esplora: 'https://esplora.example/api?key=ESPLORA_SECRET', ethRpc: 'https://rpc.example/v2/RPC_SECRET',
     })));
-    expect(here(page).sources).toBe('On this instance This page reads Sepolia through the RPC you set and Liquid through the Esplora API at esplora.example.');
+    expect(here(page).sources).toBe('On this instance Sepolia: your custom RPC. Liquid: the Esplora API at esplora.example.');
     expect(page.querySelector('.trust')?.textContent).not.toMatch(/SECRET/);
   });
 });

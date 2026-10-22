@@ -11,6 +11,7 @@ import { type ClaimPlan, claimError, claimOnLiquid, depositClaims, prepareClaim,
 import { displayHex, parseHeader, parseTransaction, txidFromDisplay } from '@bridge/core/lib/elements.js';
 import { Esplora, type TxStatus } from '@bridge/core/lib/esplora.js';
 import { EthRpc, checkChain } from '@bridge/core/lib/ethrpc.js';
+import { discoverFeeCoins, prepareFeeWithHumid } from '@bridge/core/lib/fee.js';
 import { keccak256 } from '@bridge/core/lib/hash.js';
 import { type BurnPlan, type HumidFailure, broadcastMatches, burnWithHumid, findHumid, humidError } from '@bridge/core/lib/humid.js';
 import { checkBootstrap } from '@bridge/core/lib/issuance.js';
@@ -19,6 +20,7 @@ import {
   type LiveState, type UpdatePlan, lightClientStatus, liveState, prepareUpdate, publishes, sendUpdate, updateError, withStore,
 } from '@bridge/core/lib/update.js';
 import * as derive from './derive';
+import { prepareBrowserClaim, prepareBrowserUpdate } from './browser-build';
 import { readDeposit, readHumid, readPayTo, readRedeem } from './forms';
 import { message, short } from './format';
 import { SETTINGS_KEY, actionable, label, loadJourneys, migrateStorage, saveJourneys, settled } from './journeys';
@@ -71,7 +73,9 @@ export class BridgeController {
   /** The first start's wallet read and poll; later starts only poll. */
   restored: Promise<void> | null = null;
   private messages = 0;
-  /** Coins ("txid:vout") a Humid burn from this page may have spent; not offered again until a reload. */
+  private readonly builds = new Map<SendKind, AbortController>();
+  private readonly sendRuns = new Map<SendKind, number>();
+  /** Coins ("txid:vout") a Humid send may have spent. Fee-preparation reservations also survive reloads. */
   private readonly spent = new Set<string>();
   /** The last live state followed on Liquid through the Liquid API in Settings; the next walk resumes from it. */
   private live: LiveState | null = null;
@@ -95,6 +99,12 @@ export class BridgeController {
       liquidUpdate: idleSend(), liquidClaim: idleSend(),
       journeys: loadJourneys(env.storage, instance?.escrow), toast: null, announcement: null, now: env.now(),
     };
+    try {
+      const points: unknown = JSON.parse(env.storage.getItem('zk-bridge:reserved-fees') || '[]');
+      if (Array.isArray(points)) for (const point of points.slice(0, 256)) {
+        if (typeof point === 'string' && /^[0-9a-f]{64}:[0-9]+$/.test(point)) this.spent.add(point);
+      }
+    } catch { /* Invalid saved reservations cannot authorize a spend. Live coin checks still apply. */ }
     this.prefillHumid();
   }
 
@@ -174,6 +184,8 @@ export class BridgeController {
   }
 
   private async applySettings(settings: Settings | null) {
+    this.resetSend('liquidUpdate');
+    this.resetSend('liquidClaim');
     if (settings) this.env.storage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     else this.env.storage.removeItem(SETTINGS_KEY);
     this.set({ settings: this.configure(), settingsVersion: this.state.settingsVersion + 1 });
@@ -848,18 +860,110 @@ export class BridgeController {
 
   private readonly sends = {
     liquidUpdate: {
-      what: 'update', source: 'the update.hex that just update-unsigned wrote',
+      what: 'update', source: 'an unsigned update.hex file',
       prepare: prepareUpdate,
       send: sendUpdate,
       explain: updateError,
     },
     liquidClaim: {
-      what: 'claim', source: 'the claim.hex that just claim-unsigned wrote',
+      what: 'claim', source: 'an unsigned claim.hex file',
       prepare: prepareClaim,
       send: sendClaim,
       explain: claimError,
     },
   } as const;
+
+  async findFeeCoins(address: string, minSats: bigint) {
+    return discoverFeeCoins({ esplora: this.esplora, address, minSats, maxSats: 50_000n, skip: this.spent });
+  }
+
+  async prepareFee(address: string, sats: bigint, progress: (text: string) => void) {
+    const humid = await findHumid(this.env.humidWindow());
+    if (!humid) throw new Error(NO_HUMID);
+    let reserved: string[] = [];
+    try {
+      return await prepareFeeWithHumid({ humid, esplora: this.esplora, address, sats, skip: this.spent, progress,
+        onSign: (outpoints: string[]) => {
+          reserved = outpoints;
+          for (const point of outpoints) this.spent.add(point);
+          // Persist before asking the signer. A storage failure stops the spend.
+          this.env.storage.setItem('zk-bridge:reserved-fees', JSON.stringify([...this.spent].slice(-256)));
+        } });
+    } catch (error) {
+      if ((error as { sent?: string })?.sent === 'no') {
+        for (const point of reserved) this.spent.delete(point);
+        this.env.storage.setItem('zk-bridge:reserved-fees', JSON.stringify([...this.spent].slice(-256)));
+      }
+      throw error;
+    }
+  }
+
+  /** Discard a draft when its inputs change; a running compiler is terminated immediately. */
+  resetSend(kind: SendKind) {
+    if (this.state[kind].busy && !this.builds.has(kind)) return;
+    this.builds.get(kind)?.abort();
+    this.builds.delete(kind);
+    this.sendRuns.set(kind, (this.sendRuns.get(kind) ?? 0) + 1);
+    this.patchSend(kind, idleSend());
+  }
+
+  /** Build and execute the covenant in WASM, then apply the same checks as an imported transaction. */
+  async buildFromBrowser(kind: SendKind, values: {
+    feeTxid: string; feeVout: number; depositIndex?: number; bundle?: HexFile | null;
+  }) {
+    if (this.state[kind].busy) return;
+    this.resetSend(kind);
+    const { instance } = this.state;
+    if (!instance) return;
+    const abort = new AbortController();
+    this.builds.set(kind, abort);
+    const run = this.sendRuns.get(kind);
+    const esplora = this.esplora;
+    const current = () => !abort.signal.aborted && run === this.sendRuns.get(kind) && esplora === this.esplora;
+    const note = (text: string) => { if (current()) this.patchSend(kind, { note: text }); };
+    this.patchSend(kind, { busy: true, building: true, note: 'Checking the current bridge state…' });
+    try {
+      if (!this.env.buildTransaction) throw new Error('The browser transaction builder is unavailable');
+      const site = this.env.siteHref();
+      const readRecord = siteReader(this.env.fetch, site, instance.record);
+      const args = { instance, esplora, readRecord, readEth: this.read.bind(this), feeTxid: values.feeTxid,
+        feeVout: values.feeVout, from: this.live, progress: note };
+      let input: Record<string, unknown>;
+      let store: unknown;
+      if (kind === 'liquidUpdate') {
+        const file = values.bundle;
+        if (!file || file.size > 16_000_000) throw new Error('Choose proof.browser.json, at most 16 MB');
+        let bundle: Record<string, unknown>;
+        try { bundle = JSON.parse(await file.text()); }
+        catch { throw new Error('The proof bundle is not valid JSON'); }
+        input = await prepareBrowserUpdate({ ...args, bundle });
+        store = bundle.successor_store;
+      } else {
+        if (!Number.isSafeInteger(values.depositIndex) || values.depositIndex! < 0) throw new Error('Enter a deposit number');
+        input = await prepareBrowserClaim({ ...args, depositIndex: values.depositIndex! });
+      }
+      if (!current()) return;
+      note('Building and verifying the transaction in your browser…');
+      const result = await this.env.buildTransaction(kind === 'liquidUpdate' ? 'update' : 'claim', input, abort.signal);
+      if (!current()) return;
+      note('Rechecking the state and fee coin before wallet review…');
+      let plan = await (this.sends[kind].prepare as (a: object) => Promise<UpdatePlan | ClaimPlan>)({
+        esplora, readRecord, raw: hexToBytes(result.raw_tx), bootstrap: instance.bootstrap,
+        published: publishes(site), progress: this.following(note),
+      });
+      if (store) plan = withStore(plan as UpdatePlan, JSON.stringify(store), 'proof.browser.json');
+      if (!current()) return;
+      if (kind === 'liquidUpdate') this.live = (plan as UpdatePlan).live;
+      this.patchSend(kind, { plan, storeText: store ? JSON.stringify(store, null, 2) : undefined });
+    } catch (e) {
+      if (current()) this.patchSend(kind, { error: `Cannot build this ${this.sends[kind].what}: ${message(e)}.` });
+    } finally {
+      if (current()) {
+        this.builds.delete(kind);
+        this.patchSend(kind, { busy: false, building: false, note: '' });
+      }
+    }
+  }
 
   private setLightClient(patch: Partial<LightClientCheck>) {
     this.set({ lightClient: { ...this.state.lightClient, ...patch } });
@@ -900,6 +1004,7 @@ export class BridgeController {
    * the bootstrap, and its store counts as published only on the published site (lib/update.js publishes).
    */
   async loadFile(kind: SendKind, file: HexFile | null) {
+    if (this.state[kind].busy) return;
     const k = this.sends[kind];
     const { instance } = this.state;
     this.patchSend(kind, idleSend());
@@ -941,14 +1046,14 @@ export class BridgeController {
     // Each choice, or clearing the field, drops the store an earlier file gave, before this file is read. The plan is a
     // new object every time, so a file still being read for an earlier choice no longer matches it.
     const plan: UpdatePlan = { ...loaded, store: null };
-    this.patchSend('liquidUpdate', { plan });
+    this.patchSend('liquidUpdate', { plan, storeText: undefined });
     if (!file) return;
     // An update or another store file loaded meanwhile replaced the plan: this file is no longer the one chosen.
     const current = () => this.state.liquidUpdate.plan === plan;
     try {
       if (file.size > MAX_FILE) throw new Error('this file is too large to be a store file');
       const text = await file.text();
-      if (current()) this.patchSend('liquidUpdate', { plan: withStore(plan, text, file.name || 'this file') });
+      if (current()) this.patchSend('liquidUpdate', { plan: withStore(plan, text, file.name || 'this file'), storeText: text });
     } catch (e) {
       if (current()) this.patchSend('liquidUpdate', { storeError: `Not this update's store: ${message(e)}.` });
     }

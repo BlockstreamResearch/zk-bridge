@@ -185,7 +185,7 @@ export default defineConfig({
   server: {
     // The dev server may read ../bridge-core (the shared modules) and this directory; nothing else outside it, so ../instances
     // is reachable only through instanceRecord's middleware, never through /@fs/.
-    fs: { allow: [here, coreDir] },
+    fs: { allow: [here, coreDir, path.resolve(here, '../target/browser-builders')] },
   },
   build: {
     outDir: 'dist',

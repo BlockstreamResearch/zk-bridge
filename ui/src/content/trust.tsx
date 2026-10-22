@@ -15,16 +15,13 @@ import { admission, burnAsset, relayLag, signersAhead } from '../bridge/derive';
 import { plural, short } from '../bridge/format';
 import type { BridgeReads, BridgeState } from '../bridge/types';
 import { ExtLink } from '../components/primitives';
-import { LIMITS, REPO, SITE, TAKEOVER } from './links';
+import { LIMITS, REPO, SITE } from './links';
 
 const Code = ({ children }: { children: ReactNode }) => <code className="mono">{children}</code>;
 
-export const HOW_IT_WORKS = 'A deposit locks SepETH in the escrow on Sepolia and names a Liquid script. Once Sepolia finalizes it, anyone can prove that '
-  + 'to Liquid with an SP1 proof of Sepolia\'s light client, which the Liquid covenant verifies, and then claim it: the covenant pays the bridge asset to '
-  + 'exactly the script the deposit named, once, in any order. To come back, the holder burns the asset on Liquid in an output whose script names an '
-  + 'Ethereum recipient. Once the burn has the escrow\'s required Liquid confirmations and Liquid\'s signed headers up to them are relayed to the escrow, '
-  + 'anyone can prove the burn, and the escrow pays that recipient. No admin key can move or rescue funds on either side; the points below say whose '
-  + 'failure could still cost them.';
+export const HOW_IT_WORKS = 'Deposit SepETH, wait for finality, then prove and claim bridge units on Liquid. To return, burn the units for a named '
+  + 'Ethereum recipient, wait for confirmations and relay the headers, then redeem. You or anyone else can prove, claim and relay. '
+  + 'Proofs cannot redirect the committed payment. There is no admin rescue.';
 
 const NONE = 'No instance is published yet.';
 
@@ -70,108 +67,102 @@ export interface SelfServe {
 export const SELF_SERVE: SelfServe[] = [
   {
     name: 'relay',
-    title: 'Relay Liquid headers to the escrow',
-    body: 'You can send them from a redemption\'s row, or from the deposit form when relaying is all that keeps deposits closed. The page sends batches of up to 100 headers, and the escrow checks Liquid\'s block signatures in each, so a relayer cannot lie.',
-    needs: <>A Sepolia wallet and gas. Without the page: <Code>bridge-operator relay</Code>, from the repository's <Code>tools/bridge-operator</Code>, builds each batch's calldata from public data.</>,
+    title: 'Relay Liquid headers',
+    body: 'Relay from a burn row, or the deposit form when needed to reopen deposits. The escrow checks signed headers in batches of up to 100.',
+    needs: 'A Sepolia wallet and gas.',
     here: (s) => on(s, (i) => escrowSays(s, (b) => (
-      <>The <Escrow i={i} /> has Liquid's headers up to block {n(b.lcTip)}
-        {s.liquid ? `, ${plural(relayLag(s), 'block')} behind the tip the Liquid API reports` : ''}{b.lcTime ? `; the newest is timestamped ${utc(b.lcTime)}` : ''}.
+      <><Escrow i={i} /> has headers through block {n(b.lcTip)}
+        {s.liquid ? `, ${plural(relayLag(s), 'block')} behind Liquid` : ''}{b.lcTime ? `, timestamped ${utc(b.lcTime)}` : ''}.
         {admission(s)!.relayReopens ? ' Relaying now reopens deposits.' : ''}</>
     ))),
   },
   {
     name: 'fork-proof',
-    title: 'Reopen deposits with a fork proof',
-    body: 'You can paste a proof in the deposit form when a stale fork check is what closes deposits. The page checks it against the beacon block root Ethereum itself holds, and the escrow checks it again.',
-    needs: <>To build it: a Sepolia beacon node API and <Code>tools/liquid-relay/fork_proof.py</Code>. To send it: a Sepolia wallet and gas.</>,
+    title: 'Refresh the fork check',
+    body: 'Paste a fork proof in the deposit form to reopen deposits. The page and escrow check it against Ethereum\'s beacon root.',
+    needs: <>A Sepolia beacon node and <Code>tools/liquid-relay/fork_proof.py</Code> to build it; a Sepolia wallet and gas to send it.</>,
     here: (s) => on(s, (i) => escrowSays(s, ({ admission: { forkCheckedAt: at, maxForkCheckAge: age } }) => (
-      <>{at ? <>The <Escrow i={i} /> last recorded a fork check from {utc(at)}; it counts until {utc(at + age)}, and then deposits pause until another arrives.</>
-        : <>The <Escrow i={i} /> has recorded no fork check yet.</>}
+      <>{at ? <><Escrow i={i} /> fork check: {utc(at)}, valid until {utc(at + age)}.</>
+        : <><Escrow i={i} /> has no fork check.</>}
         {admission(s)!.forkReopens ? ' A fork proof now reopens deposits.' : ''}</>
     ))),
   },
   {
     name: 'burn',
     title: 'Burn on Liquid',
-    body: <>If you hold the units, you can burn them yourself: an explicit (unblinded) output of the bridge asset whose script is exactly the 72-byte <Code>OP_RETURN</Code> the
-      Redeem tab shows for your recipient. That script has no address, so a wallet's ordinary Send cannot make it. The Redeem tab builds the whole transaction for
-      Humid to review and sign; any other tool that can pay an exact script works too. The Redeem tab shows a burn only after the published bootstrap confirms the
-      escrow's asset.</>,
-    needs: <>The units at an address the wallet can spend explicit coins from (with Humid, its unconfidential address), and a little tL-BTC for the fee: with Humid,
-      at least {HUMID_FEE.minCoin} tL-BTC received at its confidential address and confirmed, of which {HUMID_FEE.sats.toString()} sats pay the fee. No Ethereum
-      transaction: the page needs your wallet, or a Sepolia RPC in Settings, only to read the escrow.</>,
+    body: <>Use Redeem to build an unblinded burn with the exact <Code>OP_RETURN</Code> script for your recipient. Humid signs and sends it.
+      Ordinary Send cannot create this output.</>,
+    needs: <>Confirmed bridge units and one confirmed coin of at least {HUMID_FEE.minCoin} tL-BTC at Humid's confidential address for the fee.
+      Connect an Ethereum wallet or set a Sepolia RPC to read the escrow.</>,
     here: (s) => on(s, (i) => (asset(s)
-      ? <>A burn holds asset <Code>{asset(s)}</Code>, which the <Bootstrap i={i} /> issues, in a script that names the <Escrow i={i} />.</>
-      : <>The Redeem tab shows no burn until this page has read the <Escrow i={i} /> and the <Bootstrap i={i} /> confirms its asset (Bridge checks). Burn nothing until then.</>)),
+      ? <>Burn asset <Code>{asset(s)}</Code>, issued by the <Bootstrap i={i} />, for the <Escrow i={i} />.</>
+      : <>Burns are disabled until the <Bootstrap i={i} /> confirms the <Escrow i={i} /> asset. Burn nothing until verification passes.</>)),
   },
   {
     name: 'redeem',
-    title: 'Redeem a burn on Sepolia',
-    body: <>You can submit the proof this page builds from public Liquid data, even for someone else's burn. The escrow pays only the recipient the burn names,
-      once per burn output; only that recipient can have it paid elsewhere (<Code>redeemTo</Code>).</>,
-    needs: <>The burn's Liquid confirmations, as many as the escrow requires (the page footer shows the number), relayed as above, and a Sepolia wallet and gas.
-      Without the page: <Code>bridge-operator redeem</Code> (<Code>tools/bridge-operator</Code>).</>,
+    title: 'Redeem on Sepolia',
+    body: <>Submit a burn proof from Redeem. Each burn pays once to its named recipient. Only that recipient can redirect payment with <Code>redeemTo</Code>.</>,
+    needs: 'A confirmed burn, relayed headers, a Sepolia wallet and gas.',
     here: (s) => on(s, (i) => escrowSays(s, (b) => (
-      <>The <Escrow i={i} /> pays a burn once it has {plural(b.minConf, 'Liquid confirmation')}, counted in the blocks relayed to it.</>
+      <><Escrow i={i} /> requires {plural(b.minConf, 'Liquid confirmation')} in relayed blocks.</>
     ))),
   },
   {
     name: 'prove-claim',
-    title: 'Prove and claim a finalized deposit',
-    body: 'You can prove and claim your deposit, or someone else\'s, in any order. The covenant checks the proof and pays only the script each deposit committed. This page runs no prover. Once you have built an update, the page can send it with Humid paying the fee. Load its light-client store from your file if it is not published here; publication is optional. Use Send a proven update with Humid, below the bridge.',
-    needs: <>A computer with Docker and the SP1 6.8.1 toolchain (a proof is about 50 million guest cycles), a Sepolia execution RPC that serves <Code>eth_getProof</Code> at
-      the finalized block, a Sepolia beacon node's light-client updates, the store at the live head, a clone of the repository, and a little tL-BTC for the update and claim
-      fees. If a later update has already proven a deposit, only its claim is left, and that needs no prover. <ExtLink href={TAKEOVER}>The steps are in the README quick guide</ExtLink>.</>,
+    title: 'Prove and claim deposits',
+    body: <>Anyone can prove finalized deposits, then claim them in any order. A proven deposit needs only a claim, with no new proof.
+      Generate proofs locally; send updates and claims here. <a href="#guide">Follow the guide</a>.</>,
+    needs: <>Repository tools, Docker and SP1, an execution RPC with <Code>eth_getProof</Code>, a beacon node with light-client updates,
+      the current store, and tL-BTC for fees.</>,
     here: (s) => on(s, (i) => (
-      <><Code>BRIDGE_INSTANCE={i.record.replace(/\/$/, '')} just status</Code> recovers this instance's state from Liquid and names the next step. The anchor
-        is in <RecordFile i={i} file="instance.json" />, and each light-client store published here is listed in <RecordFile i={i} file="lc_preimages.json" />.
-        You can also use a shared store file, or reconstruct it while the required Beacon data remains available.</>
+      <>Read the live state with <Code>BRIDGE_INSTANCE={i.record.replace(/\/$/, '')} just status</Code>.
+        Anchor: <RecordFile i={i} file="instance.json" />. Published stores: <RecordFile i={i} file="lc_preimages.json" />.
+        A shared file or recoverable beacon data can also supply the store.</>
     )),
   },
   {
     name: 'audit',
-    title: 'Check this instance',
-    body: <>You can rebuild the Liquid state address from the instance record (<Code>assemble.py verify-bootstrap</Code>), compile the escrow to its published code
-      hash, and rebuild the live Liquid state from public transactions (<Code>assemble.py recover</Code>).</>,
-    needs: 'A clone of the repository, Python and Foundry, and public chain data.',
+    title: 'Verify the instance',
+    body: <>Rebuild the covenant address with <Code>assemble.py verify-bootstrap</Code>, compare the compiled escrow hash,
+      and recover Liquid state with <Code>assemble.py recover</Code>.</>,
+    needs: 'Repository tools, Python, Foundry and public chain data.',
     here: (s) => on(s, (i) => (
-      <>Its pins are in <RecordFile i={i} file="instance.json" /> (escrow, code hash <Code>{short(`0x${i.codeHash}`)}</Code>, guest and anchor) and
-        {' '}<RecordFile i={i} file="manifest.json" /> (asset, state address <Code>{short(i.state, 8)}</Code> and covenant leaves). Give both to
-        {' '}<Code>verify-bootstrap</Code>, with the public bytes of the <Bootstrap i={i} />.</>
+      <>Deployment pins: <RecordFile i={i} file="instance.json" /> and <RecordFile i={i} file="manifest.json" />.
+        State: <Code>{short(i.state, 8)}</Code>. Bootstrap: <Bootstrap i={i} />.</>
     )),
   },
   {
     name: 'sources',
-    title: 'Choose where this page reads',
-    body: 'You can set your own Liquid Esplora API and Sepolia RPC in Settings.',
-    needs: 'Nothing else; your wallet still signs every Sepolia transaction.',
-    here: (s) => <>This page reads Sepolia through {s.settings.ethRpc ? 'the RPC you set' : 'your wallet'} and Liquid through {esplora(s)}.</>,
+    title: 'Choose data sources',
+    body: 'Set a Liquid Esplora API and Sepolia RPC in Settings.',
+    needs: 'Your wallet still signs Sepolia transactions.',
+    here: (s) => <>Sepolia: {s.settings.ethRpc ? 'your custom RPC' : 'your wallet'}. Liquid: {esplora(s)}.</>,
   },
 ];
 
-export const SELF_SERVE_NOTE = 'You need no operator permission for any step above. The page can send relay, fork-check and redemption transactions from your '
-  + 'wallet; proving a deposit needs the local tools and services listed above. The deposit closer can end deposits early; it can never reopen them or touch funds.';
+export const SELF_SERVE_NOTE = 'Every action is open to you or anyone else. Proof generation runs locally. '
+  + 'The deposit closer can only end deposits early; it cannot reopen them or move funds.';
 
 export const COSTS: { name: 'deposit' | 'sepolia' | 'burn' | 'prove-claim'; title: string; body: string }[] = [
   {
     name: 'deposit',
     title: 'Deposit',
-    body: 'SepETH from your Sepolia wallet: at least 0.001, in steps of 0.00000001 (one bridge unit each), plus gas. The claim pays the same number of units explicitly to the Liquid script you name, so name one your wallet can spend open coins from: with Humid, its unconfidential address.',
+    body: 'At least 0.001 SepETH plus gas. One bridge unit equals 0.00000001 ETH. Claims pay public, unblinded outputs; use a wallet that can spend them.',
   },
   {
     name: 'sepolia',
-    title: 'Relay, fork proof, redemption',
-    body: 'Sepolia gas, paid by whoever sends them; your wallet shows each cost before you sign. A relay batch of 100 headers is the largest. A redemption pays the recipient the burned units as SepETH, at 0.00000001 ETH each, with no bridge fee.',
+    title: 'Relay, fork check, redeem',
+    body: 'The sender pays Sepolia gas. Redemption returns 0.00000001 ETH per burned unit, with no bridge fee.',
   },
   {
     name: 'burn',
     title: 'Burn',
-    body: `No Ethereum transaction. The bridge-asset input is the claim's own open output; the units you burn must be there and confirmed. With Humid, the fee is ${HUMID_FEE.sats} sats from one of Humid's tL-BTC coins of at least ${HUMID_FEE.minCoin} tL-BTC (fee plus ${HUMID_FEE.change} sats of change), received at its confidential address and confirmed. Humid's balance does not count the open claim, and its coin list can leave open coins out, so a fee received at the unconfidential address may not be found.`,
+    body: `Humid burn fee: ${HUMID_FEE.sats} sats. It needs one confirmed coin of at least ${HUMID_FEE.minCoin} tL-BTC at its confidential address, covering the fee and ${HUMID_FEE.change} sats of change. Its balance omits unblinded bridge units; this page can spend them.`,
   },
   {
     name: 'prove-claim',
-    title: 'Proof and claim',
-    body: 'tL-BTC for the Liquid update and claim fees, paid by whoever sends them, and the prover\'s own machine time; no bridge fee.',
+    title: 'Proof, update and claim',
+    body: 'The sender pays tL-BTC for update and claim fees. The prover supplies computing time. No bridge fee.',
   },
 ];
 
@@ -185,122 +176,106 @@ export interface Assumption {
 /** The bootstrap check's outcome (BridgeState.bootstrap), as Bridge checks lists it. */
 function bootstrapChecked(s: BridgeState): string {
   const b = s.bootstrap;
-  if (s.bridgeError) return 'This page does not check it while it refuses the escrow.';
-  if (!s.bridge) return 'This page checks it once it has read the escrow.';
-  if (!b) return 'This page is checking it.';
-  if (b.ok) return 'This page checked it against the escrow\'s asset; Bridge checks lists each check.';
-  if (b.unavailable) return 'The Liquid API has not served it to this page yet; the page tries again, and shows no burn until the check passes.';
-  return `It failed this page's check (${b.error}), so the page takes no deposit and shows no burn.`;
+  if (s.bridgeError) return 'Not checked: escrow rejected.';
+  if (!s.bridge) return 'Waiting to read the escrow.';
+  if (!b) return 'Checking bootstrap.';
+  if (b.ok) return 'Bootstrap matches the escrow asset.';
+  if (b.unavailable) return 'Bootstrap unavailable. Retrying; burns stay disabled.';
+  return `Bootstrap rejected: ${b.error}. Deposits and burns are disabled.`;
 }
 
 export const ASSUMPTIONS: Assumption[] = [
   {
-    title: 'Liquid\'s block signer: one key.',
-    body: 'The escrow pays for a burn in any block signed under Liquid\'s signing script, so it trusts the signers not to sign an invalid block.',
-    here: (s) => <>{on(s, (i) => escrowSays(s, (b) => (
-      <>The <Escrow i={i} /> expects the signing script with hash <Code>{short(b.sbsHash)}</Code>
-        {!s.liquid ? '.' : signersAhead(s) ? '; Liquid\'s latest block signs under a newer one, which the escrow follows once the headers that elected it are relayed.'
-          : ', the one Liquid\'s latest block signs under.'}</>
-    )))} Liquid testnet blocks are signed by a 1-of-1 script: one Blockstream key. If that key signs a false block, or is stolen, the escrow can pay for a
-      burn that never happened. Testnet keeps that one key in every epoch, so the retired-key risk of the next point adds nothing here.</>,
+    title: 'Liquid signers',
+    body: 'The escrow trusts Liquid\'s block signatures. Liquid testnet uses one Blockstream key. A compromised or dishonest signer can authorize a false burn and drain escrow funds.',
+    here: (s) => on(s, (i) => escrowSays(s, (b) => (
+      <><Escrow i={i} /> expects signing script hash <Code>{short(b.sbsHash)}</Code>.
+        {s.liquid ? signersAhead(s) ? ' New signing keys await relaying.' : ' It matches the latest Liquid block.' : ''}</>
+    ))),
   },
   {
-    title: 'A light client of Liquid, relayed by anyone.',
-    body: 'The escrow follows Liquid\'s signed headers block by block, including DynaFed key changes decided by Liquid\'s 4/5 vote. Each epoch\'s keys are trusted for the blocks of that epoch it has not yet seen, even after Liquid retires them. A vote the contract cannot decide stops it for good.',
-    here: (s) => <>{on(s, (i) => escrowSays(s, (b) => (
-      <>The <Escrow i={i} /> started from a Liquid checkpoint fixed at its deployment and follows DynaFed epochs of {n(b.epochLength)} blocks.</>
-    )))} This page relays from your wallet; Relay Liquid headers, above, says how far relaying has reached.</>,
+    title: 'Liquid checkpoint and key changes',
+    body: 'The escrow starts at a fixed checkpoint and follows DynaFed\'s 4/5 votes. Retired keys remain trusted for unseen blocks in their epochs. An undecidable vote permanently stops the client.',
+    here: (s) => on(s, (i) => escrowSays(s, (b) => (
+      <><Escrow i={i} /> uses DynaFed epochs of {n(b.epochLength)} blocks. Anyone can relay headers.</>
+    ))),
   },
   {
-    title: 'An Ethereum light client on Liquid, through SP1.',
-    body: 'The covenant mints only with an SP1 Groth16 proof that Sepolia finalized the deposit. That trusts Sepolia\'s sync committee, as any Ethereum light client does, SP1 and its proving setup, the guest program, and an unaudited Simplicity Groth16 verifier.',
+    title: 'Ethereum proofs and setup',
+    body: 'Minting relies on Sepolia\'s sync committee, SP1 and its Groth16 setup, the guest program, and an unaudited Simplicity verifier.',
     here: (s) => on(s, (i) => (
-      <>The covenant keeps its state at address <Code>{short(i.state, 8)}</Code>. <RecordFile i={i} file="instance.json" /> pins the Sepolia anchor, a finalized slot whose sync
-        committee the first proof starts from, and the guest ELF and program vkey; <Code>just prover check-elf</Code> rebuilds the last two in SP1's pinned Docker image.</>
+      <>State: <Code>{short(i.state, 8)}</Code>. <RecordFile i={i} file="instance.json" /> pins the Sepolia anchor, guest ELF and program key.
+        Verify the build with <Code>just prover check-elf</Code>.</>
     )),
   },
   {
-    title: 'Sepolia\'s fork schedule.',
-    body: 'The guest and the escrow know Sepolia\'s forks up to the one the escrow pins. Past a fork they do not know, deposits could no longer be proven.',
-    here: (s) => <>{on(s, (i) => escrowSays(s, (b) => <>The <Escrow i={i} /> takes no deposit after {utc(b.admission.depositsEnd)}.</>))} An escrow pins the latest
-      fork scheduled at its deployment and ends deposits at a fixed time in any case, at most 180 days later. If another fork is announced first, only the deposit
-      closer the escrow names (<Code>DEPOSIT_CLOSER</Code>) can end deposits before it, and only if someone holds its key and pays its gas. Deposits made shortly
-      before an unannounced fork may never be claimable.</>,
+    title: 'Ethereum forks',
+    body: 'An unknown Sepolia fork can make deposits unprovable. Deposits close on a fixed date, at most 180 days after deployment. Only the designated deposit closer can end them earlier, requiring its key and gas.',
+    here: (s) => <>{on(s, (i) => escrowSays(s, (b) => <><Escrow i={i} /> closes deposits at {utc(b.admission.depositsEnd)}.</>))}
+      {' '}Deposits made before an unannounced fork may never be claimable.</>,
   },
   {
-    title: 'An operator to finish deposits.',
-    body: 'After Ethereum finality someone must prove your deposit to Liquid and claim it. Until then your ETH stays in the escrow, with no refund. The covenant checks the proof and pays only the script you committed, so an operator can delay a claim but not redirect it. It accepts both steps from anyone.',
-    here: (s) => <>{on(s, (i) => <>Deposits to the <Escrow i={i} /> wait for someone to prove and claim them.</>, 'So no deposit has been proven or claimed.')} This
-      page and its static host run no prover or background relay or fork check; you can submit the relay and fork-check transactions from the page. Anyone can
-      prove and claim a finalized, unclaimed deposit by following <ExtLink href={TAKEOVER}>the README quick guide</ExtLink>.</>,
+    title: 'Proving and claiming',
+    body: 'After finality, you or anyone else must prove and claim the deposit. These steps are not automatic. Until then, ETH stays in escrow with no refund. Proofs and claims cannot change the recipient.',
+    here: (s) => <>{on(s, (i) => <>Deposits use the <Escrow i={i} />.</>)}{' '}
+      This site runs no background prover or relay. <a href="#guide">Prove and claim guide</a>.</>,
   },
   {
-    title: 'Someone to keep deposits open.',
-    body: 'Deposits pause unless a fresh fork-check proof arrives and Liquid headers are relayed often enough. Anyone may send either: this page relays from your wallet and sends a pasted fork proof, but building that proof needs a beacon node. Redemptions never wait for this.',
-    here: (s) => <>{on(s, (i) => escrowSays(s, (b) => (
-      <>The <Escrow i={i} /> takes a fork check up to {span(b.admission.maxForkCheckAge)} old and a last relayed Liquid block up to {span(b.maxRelayLag)} old;
-        deposits are {admission(s)!.deposit ? 'open' : 'closed'} now.</>
-    )))} Both age out unless someone repeats them. The deposit closer can end deposits early; it cannot move funds, reopen deposits or stop redemptions.</>,
+    title: 'Keeping deposits open',
+    body: 'Anyone can refresh fork proofs and relay headers. Deposits pause when either grows stale. Redemption ignores the deposit pause, but still needs relayed burn confirmations.',
+    here: (s) => on(s, (i) => escrowSays(s, (b) => (
+      <><Escrow i={i} /> allows a fork check up to {span(b.admission.maxForkCheckAge)} old and relayed block up to {span(b.maxRelayLag)} old.
+        Deposits are {admission(s)!.deposit ? 'open' : 'closed'}.</>
+    ))),
   },
   {
-    title: 'Public records, including the light-client store.',
-    body: 'Liquid holds only hashes of the bridge state. Whoever proves next needs the state\'s fields and the full light-client store behind them, and must find both in public data.',
-    here: (s) => <>{on(s, (i) => (
-      <><RecordFile i={i} file="lc_preimages.json" /> lists each light-client store this site publishes. A missing entry does not mean nobody has shared the
-        store elsewhere. The first proof starts from the anchor store in this instance.</>
-    ), 'No update has been made on it, so its live state is the one its bootstrap creates, at the anchor. Its first proof starts from the published anchor store.')} The
-      tools refuse a store unless it hashes to the state on Liquid. The covenant cannot enforce publication. If an updater withholds a later store, anyone can
-      reconstruct it from a matching public beacon header and sync-committee update while those are available, or use archived proof inputs. Once those sources
-      disappear, further proofs can stall. <ExtLink href={LIMITS}>Recovery instructions</ExtLink> explain the limits.</>,
+    title: 'Store availability',
+    body: 'Liquid stores state hashes. The next prover needs the matching state and full light-client store. Publishing a successor store is optional and cannot be enforced by the covenant. Withholding it can stall further proofs.',
+    here: (s) => <>{on(s, (i) => <>Published stores: <RecordFile i={i} file="lc_preimages.json" />. Other shared copies also work.</>)}{' '}
+      Recovery needs matching beacon headers and sync-committee updates, or archived proof inputs. Once those disappear, recovery may be impossible.
+      {' '}<ExtLink href={LIMITS}>Recovery details</ExtLink>.</>,
   },
   {
-    title: 'An honest bootstrap.',
-    body: 'The escrow knows its Liquid asset, but not where that asset\'s minting token went. This page checks the public bootstrap: one token, no coins, all in the published state address. Whether that address holds the reviewed covenant is checked by rebuilding it from source.',
+    title: 'Bootstrap verification',
+    body: 'The escrow cannot verify where the minting token went. This page checks one token, no initial coins, and that the token is at the published state address. Verifying the covenant at that address requires a source rebuild.',
     here: (s) => on(s, (i) => (
-      <>The <Bootstrap i={i} /> names state address <Code>{short(i.state, 8)}</Code>. {bootstrapChecked(s)} <Code>assemble.py verify-bootstrap</Code> rebuilds
-        that address, with its claim and update leaves, from <RecordFile i={i} file="manifest.json" />; this page does not.</>
+      <><Bootstrap i={i} /> → <Code>{short(i.state, 8)}</Code>. {bootstrapChecked(s)} Rebuild with <Code>assemble.py verify-bootstrap</Code>
+        {' '}and <RecordFile i={i} file="manifest.json" />.</>
     )),
   },
   {
-    title: 'Fixed code, no upgrade path.',
-    body: 'A bug in the contracts or covenants strands the funds; no admin key can change them or rescue anything.',
+    title: 'Fixed, unaudited code',
+    body: 'Contract or covenant bugs can strand funds. No admin key can upgrade the code or rescue funds.',
     here: (s) => on(s, (i) => (
-      <>This page uses the <Escrow i={i} /> only while the hash of its code is <Code>{short(`0x${i.codeHash}`)}</Code>, the one
-        {' '}<RecordFile i={i} file="instance.json" /> pins{s.bridgeError ? `; it is ${s.bridgeError}, so the page uses it for nothing.` : s.bridge ? ', and it matched.' : '.'} Anyone
-        can compile <Code>contracts/solidity/</Code> and compare. No audit is claimed.</>
+      <><Escrow i={i} /> must match hash <Code>{short(`0x${i.codeHash}`)}</Code> from <RecordFile i={i} file="instance.json" />.
+        {s.bridgeError ? ` Rejected: ${s.bridgeError}.` : s.bridge ? ' Hash matched.' : ' Not checked yet.'}
+        {' '}Compare a local build of <Code>contracts/solidity/</Code> to verify the source.</>
     )),
   },
   {
-    title: 'A burn\'s exact script.',
-    body: 'The escrow pays only for an explicit (unblinded) output of its asset whose script is exactly the one naming the recipient. A blinded output, a wallet\'s Burn or Destroy control, or a payment to any other script redeems nothing. The page builds that script from its own source, and only checks it against the escrow. It shows a burn, and has Humid make one, only of the asset the record\'s bootstrap transaction issues, whatever an RPC reports.',
-    here: (s) => <>The escrow redeems an explicit output of its asset whose script is exactly 72 bytes: <Code>OP_RETURN</Code>, then one 70-byte push of the tag
-      {' '}<Code>liquid-bridge-poc/burn</Code>, Sepolia's chain id, the escrow and the recipient, in plain bytes. Consensus alone makes it unspendable, and anyone can
-      read what it names on a Liquid explorer. The Redeem tab shows that script for your recipient and requires the escrow's own <Code>burnScriptPubKey</Code> to
-      answer exactly the script this page builds. {on(s, (i) => (
-        <>Here it names chain id {DEFAULTS.chainId.toString()} and the <Escrow i={i} />{asset(s) ? <>, and the asset is <Code>{asset(s)}</Code></> : ''}.</>
-      ), 'So no burn has been made.')}</>,
+    title: 'Exact burn script',
+    body: 'Burns are irreversible. Only an unblinded output of the verified bridge asset with the exact recipient script can redeem. A different script, blinded output, or ordinary Burn or Destroy button cannot.',
+    here: (s) => <>The script is 72 bytes: <Code>OP_RETURN</Code>, then a 70-byte push of <Code>liquid-bridge-poc/burn</Code>,
+      chain ID, escrow and recipient. Its amount and recipient are public. Redeem checks it against the escrow's <Code>burnScriptPubKey</Code>.
+      {' '}{on(s, (i) => <><Escrow i={i} /> uses chain {DEFAULTS.chainId.toString()}{asset(s) ? <> and asset <Code>{asset(s)}</Code></> : ''}.</>)}</>,
   },
   {
-    title: 'Recipients that refuse ETH.',
-    body: 'If the Ethereum recipient rejects the payment, the redemption does not happen and the burn stays unspent; the recipient itself can then redeem to another address. An address that can neither receive ETH nor make calls could never redeem.',
-    here: (s) => <>Redeem step 4 builds <Code>redeemTo</Code>, which the recipient sends to have the ETH paid to another address.
-      {' '}{on(s, (i) => <>It is a call to the <Escrow i={i} />.</>, 'So nothing has been redeemed.')}</>,
+    title: 'Recipients that reject ETH',
+    body: 'A rejected payment leaves the burn unredeemed. Only its recipient can redirect payment. If that address can neither accept ETH nor call redeemTo, redemption is impossible.',
+    here: (s) => <>Redeem → Redirect payment uses <Code>redeemTo</Code>. {on(s, (i) => <>The recipient calls the <Escrow i={i} />.</>)}</>,
   },
   {
-    title: 'What this page reads, and this page itself.',
-    body: 'The page reads Sepolia through your wallet, or the RPC you set in Settings, and Liquid through an Esplora API. A false answer can make it show the wrong state or refuse to act. It cannot make the escrow or the covenant pay anyone else, because both check on chain, and it does not choose where your funds go or what a burn destroys: the page builds deposits and burn scripts from its own source and the instance record, and burns only the asset the record\'s bootstrap transaction issues. You do trust the copy of the page you loaded, as with any web wallet interface; your wallet and Humid show each transaction before you sign.',
-    here: (s) => <>Sepolia: {s.settings.ethRpc ? 'the RPC you set in Settings' : 'your wallet\'s RPC'}; the page does not read through an RPC whose chain id is
-      not Sepolia's. Liquid: {esplora(s)}, whose word the page takes that a transaction is confirmed; the escrow checks every relayed header. The page is static
-      files built from the repository, serving {s.instance ? <>only the instance <Code>{s.instance.name}</Code> its <Code>bridge-core/config.js</Code> names</> : 'no instance yet'};
-      it holds no key and runs no relayer or prover. {s.published
-        ? `This copy is the published site, ${SITE}, built from ${REPO}.`
-        : 'This copy is not the published site named at the top of the page, so no store its record lists counts as published.'}</>,
+    title: 'This site and its data sources',
+    body: 'False RPC or API data can mislead this page or prevent actions; on-chain checks still enforce payments. You trust the site code you loaded and must review wallet approvals. The page verifies the burn asset against the bootstrap.',
+    here: (s) => <>Sepolia: {s.settings.ethRpc ? 'your custom RPC' : "your wallet's RPC"}. Liquid: {esplora(s)}.
+      Liquid confirmation status comes from that API; the escrow checks relayed headers. This site holds no keys.
+      {s.instance ? <> Instance: <Code>{s.instance.name}</Code>.</> : ''}
+      {' '}{s.published ? <>Published site: <ExtLink href={SITE}>zk-bridge</ExtLink>. <ExtLink href={REPO}>Source</ExtLink>.</>
+        : 'Unofficial copy; its listed stores do not count as published here.'}</>,
   },
   {
-    title: 'Test networks.',
-    body: 'SepETH and the bridge asset have no value. This is a proof of concept.',
-    here: (s) => <>{on(s, (i) => (
-      <>The SepETH in the <Escrow i={i} /> and {asset(s) ? <>asset <Code>{asset(s)}</Code></> : 'its asset'} on Liquid testnet have no value.</>
-    ))} Public data shows each transaction and its sender, not which page or wallet software built it.</>,
+    title: 'Test networks',
+    body: 'This is an unaudited proof of concept. SepETH and the bridge asset have no value.',
+    here: (s) => on(s, (i) => <>Sepolia <Escrow i={i} /> and Liquid testnet{asset(s) ? <> asset <Code>{asset(s)}</Code></> : ''}.</>),
   },
 ];
