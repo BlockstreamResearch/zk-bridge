@@ -30,7 +30,7 @@ DEPS = {
                         'a8896cf93ed683d8ae1430371ad7d196ab061fa5', (),
                         'claim crate, Liquid claim tool'),
     'simple-groth16': ('https://github.com/BlockstreamResearch/simple-groth16.git',
-                       '4f787ea07b97e62bd0ba4fa3f9518d52621dcb68', (),
+                       'a3ac525296ac1706099968f37a575007b89a5bdb', (),
                        'Groth16 verifier generator of the update leaf (tools/sg16)'),
     # SP1 Helios v1.3.0. Its sp1-contracts submodule holds the SP1 v6.1.0 Groth16 verifier whose key
     # the update leaf folds.

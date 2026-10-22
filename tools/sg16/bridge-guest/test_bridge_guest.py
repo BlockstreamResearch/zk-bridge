@@ -37,8 +37,9 @@ import liquid  # noqa: E402
 from sg16 import fixtures, harness, helios, sp1, statement  # noqa: E402
 from sg16.ref import ROOT  # noqa: E402
 from groth import bn254 as B  # noqa: E402
+from groth.dsl import CheckFailed  # noqa: E402
 from groth.fp import Fp  # noqa: E402
-from groth.miller import bounds  # noqa: E402
+from groth.pairing import bounds  # noqa: E402
 from groth.sym import Num  # noqa: E402
 
 CORE = Path(os.environ.get('SG16_BRIDGE_CORE', HERE / 'target' / 'release' / 'sg16-bridge-core'))
@@ -103,7 +104,6 @@ def main():
     ap.add_argument('--artifact')
     ap.add_argument('--harness', action='store_true',
                     help='with --artifact: run the real proof through the update leaf')
-    ap.add_argument('--program-bytes', type=int, default=160000)
     ap.add_argument('--evidence')
     a = ap.parse_args()
     report, failures = {}, []
@@ -222,25 +222,31 @@ def main():
     report['rules'] = dict(predicted_cost=est, cases=results)
 
     def full_run(vk1, proof, finputs, fields, tx, label, config, escrow, slot_key):
-        _, g0, cost0 = liquid.BridgeGuestVerifier.compile(vk1, k, config=config, escrow=escrow, slot_key=slot_key)
-        pad = liquid.BridgeGuestVerifier.padding(cost0, a.program_bytes, (g0.witness_bits() + 7) // 8, control_bytes=97)
-        text, gs, est = liquid.BridgeGuestVerifier.compile(vk1, k, pad_blocks=pad,
-                                                           config=config, escrow=escrow, slot_key=slot_key)
+        text, gs, est = liquid.BridgeGuestVerifier.compile(vk1, k, config=config, escrow=escrow, slot_key=slot_key)
         prog = harness.write(f'bridge_guest_{label}.simpl', text)
-        gn = liquid.BridgeGuestVerifier(Fp(Num()), vk1, k, b=bounds(), pad_blocks=pad,
-                                        config=config, escrow=escrow, slot_key=slot_key)
+        gn = liquid.BridgeGuestVerifier(Fp(Num()), vk1, k, b=bounds(), config=config, escrow=escrow, slot_key=slot_key)
         wit = gn.witness_fields(proof, finputs, fields)
         if not check(f'{label}: the numeric model builds the witness', wit is not None):
             return
         gn.verify(gn.num_input(wit))
         tampered = dict(wit, points=list(wit['points']))
         tampered['points'][0] ^= 1
-        runs = [dict(name=f'{label}: update', expect='ok', tx=tx, mutations=[],
-                     witness={'w_in': gs.witness_value(wit)}),
+        other_q = dict(wit, q=list(wit['q']))
+        other_q['q'][0] ^= 1
+        for name, w in (('a tampered proof', tampered), ('a tampered quotient', other_q)):
+            try:
+                gn.verify(gn.num_input(w))
+                refused = False
+            except CheckFailed:
+                refused = True
+            check(f'{label}: the numeric model refuses {name}', refused)
+        runs = [dict(name=f'{label}: update', expect='ok', tx=tx, mutations=[], witness=gs.witness_value(wit)),
                 dict(name=f'{label}: tampered proof', expect='fail', tx=tx, mutations=[],
-                     witness={'w_in': gs.witness_value(tampered)}),
+                     witness=gs.witness_value(tampered)),
+                dict(name=f'{label}: tampered quotient', expect='fail', tx=tx, mutations=[],
+                     witness=gs.witness_value(other_q)),
                 dict(name=f'{label}: successor with another accumulator', expect='fail', tx=tx,
-                     mutations=['successor_state_other'], witness={'w_in': gs.witness_value(wit)})]
+                     mutations=['successor_state_other'], witness=gs.witness_value(wit))]
         header, res = harness.run(prog, dict(config=cfg, cases=runs), name=f'bridge_guest_{label}_cases.json')
         for case, r in zip(runs, res):
             good = r['ok'] == (case['expect'] == 'ok')
@@ -249,7 +255,7 @@ def main():
                 print(f'    cost {r["cost"]:,} mWU (predicted {est:,}), program {r["program_bytes"]:,} B, '
                       f'witness {r["witness_bytes"]:,} B, tx weight {r["tx_weight"]:,} WU, cells {r["cells"]:,}')
             check(f'{case["name"]}: {"accepted" if case["expect"] == "ok" else "rejected"}', good, r.get('stage'))
-        report[label] = dict(cmr=header['cmr'], predicted_cost=est, padding_blocks=pad, parts=gs.parts, cases=res)
+        report[label] = dict(cmr=header['cmr'], predicted_cost=est, parts=gs.parts, cases=res)
 
     if a.full:
         print('C. Groth16 verifier + update leaf (folded synthetic five-input key)')

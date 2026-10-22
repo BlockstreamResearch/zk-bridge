@@ -1175,9 +1175,9 @@ const FIELD_BITS: usize = 7 * 256 + 2 * 64;
 
 /// The update fields in a confirmed update's witness.  The leaf checks lc, acc and sibling against the spent output
 /// (tappath_hash), so they are the spent state's lc and acc and the claim leaf's hash; those 768 bits locate the
-/// fields, at their first occurrence.  The witness is the proof's values, then the fields, then padding blocks
-/// (sg16/covenant.py BridgeVerifier) that the leaf hashes and drops: anyone who relays an update can rewrite the
-/// padding, these 768 bits included, without changing its txid, but cannot make the proof's values hold them.  The
+/// fields, at their first occurrence.  The proof's values and the fields (sg16/covenant.py BridgeVerifier) come
+/// before any bits a relayer could rewrite without changing the txid, such as the padding blocks older leaves carry,
+/// and the proof's values cannot be made to hold these 768 bits.  The
 /// leaf also verified the proof of exactly these values, and output 0's script, checked by the caller, commits
 /// new_lc and new_acc.
 fn update_fields(

@@ -28,7 +28,7 @@ import { SIGN_DEADLINE_MS, base64, encodePset, humidError, humidSession, signAnd
 /**
  * The largest fee this page has Humid pay, in sats. The leaf spends the whole fee coin as fee, and the tools refuse
  * a coin above max(100 times the relay floor, 50,000 sats) (tools/sg16/bridge-guest/testnet/tx fee_ceiling). An
- * update of about 380,000 weight units pays about 12,000.
+ * update of about 59,100 weight units has a relay floor of 1,478 sats; the page offers a 2,000-sat coin.
  */
 export const MAX_FEE_SATS = 50_000n;
 /** The longest PSET, in base64 characters, Humid 1.1.3's signPset accepts (domain/pset/validation.ts). */
@@ -353,10 +353,9 @@ function bytesAt(bits, at, n) {
  * product, so contiguous in the witness: lc, acc and sibling, which the leaf checks against the spent output, then
  * new_lc, new_acc, exec_root and claimed_root, then exec_block and new_head as big-endian 64-bit words. The update
  * carries claimed_root from the spent state to its successor unchanged; spendOf checks it against the spent state
- * leaf. The first 768 bits locate the rest, at their first occurrence: the witness is the proof's values, then the
- * fields, then padding blocks (tools/sg16/sg16/covenant.py BridgeVerifier) that the leaf hashes and drops. Anyone who
- * relays an update can rewrite the padding, these 768 bits included, without changing its txid, but cannot make the
- * proof's values hold them.
+ * leaf. The first 768 bits locate the rest, at their first occurrence: the proof's values and the fields
+ * (tools/sg16/sg16/covenant.py BridgeVerifier) come before any bits a relayer could rewrite without changing the txid,
+ * such as the padding blocks older leaves carry, and the proof's values cannot be made to hold these 768 bits.
  */
 export function updateFields(witness, spent, sibling) {
   const bits = bitsOf(witness);

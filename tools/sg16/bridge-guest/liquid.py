@@ -146,8 +146,8 @@ def rules_witness(f, x):
 class BridgeGuestVerifier(BridgeVerifier):
     """Groth16 verifier for the guest's folded SP1 key with the bridge-guest update opening."""
 
-    def __init__(self, fp, vk, consts, w=5, b=None, pad_blocks=0, opened=0, config=None, escrow=None, slot_key=0):
-        super().__init__(fp, vk, consts, w, b=b, pad_blocks=pad_blocks, opened=opened)
+    def __init__(self, fp, vk, consts, b=None, opened=0, config=None, escrow=None, slot_key=0):
+        super().__init__(fp, vk, consts, b=b, opened=opened)
         ensure(config is not None and escrow is not None, 'config and escrow')
         self.config, self.escrow, self.slot_key = config, escrow, slot_key
 

@@ -58,6 +58,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -68,10 +69,11 @@ sys.path.insert(0, str(HERE.parents[1]))
 import pins  # noqa: E402
 import liquid  # noqa: E402
 from sg16 import harness, sp1, statement  # noqa: E402
-from sg16.ref import ROOT  # noqa: E402
+from sg16 import ref as sg16_ref  # noqa: E402
+from sg16.ref import COMMIT, PIN, PINNED, ROOT, SOURCE_SHA256, STATE as GENERATOR_STATE  # noqa: E402
 from groth import bn254 as B  # noqa: E402
 from groth.fp import Fp  # noqa: E402
-from groth.miller import bounds  # noqa: E402
+from groth.pairing import bounds, windows  # noqa: E402
 from groth.sym import Num  # noqa: E402
 
 TARGET = ROOT / 'tools' / 'sg16' / 'bridge-guest' / 'target'
@@ -82,6 +84,14 @@ V6 = ROOT / 'vendor' / 'sp1-helios' / 'contracts' / 'lib' / 'sp1-contracts' / 'c
 SCHEMA = 'liquid-bridge-poc/manifest'
 DRY_RUN_TXID = pins.sha(b'sg16 testnet dry-run bootstrap outpoint (not a transaction)').hex()
 STAND_IN_UPDATE_CMR = pins.sha(b'sg16 testnet stand-in update leaf CMR (local tests only)').hex()
+# The generator whose witness layout this checkout writes.  A manifest records the one that compiled its leaf: this
+# name only if the loaded generator is the pinned source (sg16/ref.py PINNED), and otherwise its commit and source
+# hash marked "not pinned", which generator_gate refuses.
+GENERATOR = f'simple-groth16 {PIN}'
+# The update leaf's public inputs: SP1's public-values digest, the other wrapper inputs being folded (sp1.py).
+INPUTS = 1
+# rust-simplicity's encoding of a pruned branch: a 4-bit tag and its 256-bit commitment (bit_encoding/encode.rs).
+HIDDEN_BITS = 4 + 256
 
 
 class Gate(Exception):
@@ -202,16 +212,33 @@ def contract_return(text, fn):
     return m.group(1).strip().lower() if m else None
 
 
+def key_pin_problems(constants):
+    """The key constants of a Groth16Verifier.sol (`constants`: sp1.solidity_constants) that are not exactly
+    pins.GROTH16_KEY_PINS: missing, extra (another public input) or with another value."""
+    key = {n: v for n, v in constants.items() if re.fullmatch(pins.GROTH16_KEY_NAME, n)}
+    return sorted(n for n in key.keys() | pins.GROTH16_KEY_PINS.keys() if key.get(n) != pins.GROTH16_KEY_PINS.get(n))
+
+
+def pinned_key():
+    """The v6.1.0 key built from the pins alone, with -beta, -gamma, -delta negated back (sp1.py)."""
+    k = pins.GROTH16_KEY_PINS
+    g2 = lambda p: B.g2_neg((B.Fp2(k[f'{p}_X_0'], k[f'{p}_X_1']), B.Fp2(k[f'{p}_Y_0'], k[f'{p}_Y_1'])))  # noqa: E731
+    ic = [(k['CONSTANT_X'], k['CONSTANT_Y'])] + [(k[f'PUB_{i}_X'], k[f'PUB_{i}_Y']) for i in range(5)]
+    return dict(alpha=(k['ALPHA_X'], k['ALPHA_Y']), beta=g2('BETA_NEG'), gamma=g2('GAMMA_NEG'), delta=g2('DELTA_NEG'),
+                ic=ic)
+
+
 def sp1_keys(g, inst):
     """The pinned SP1 v6.1.0 Groth16 key, and its one-input fold for the instance's bridge guest."""
     sv, gv = (V6 / 'SP1VerifierGroth16.sol').read_text(), (V6 / 'Groth16Verifier.sol').read_text()
     verifier_hash, vk_root_text = contract_return(sv, 'VERIFIER_HASH'), contract_return(sv, 'VK_ROOT')
     g.need('SP1VerifierGroth16 VERIFIER_HASH = pin', verifier_hash == '0x' + pins.VERIFIER_HASH, verifier_hash)
     g.need('SP1VerifierGroth16 VK_ROOT = pin', vk_root_text == '0x' + pins.VK_ROOT, vk_root_text)
-    k = sp1.solidity_constants(gv)
-    g.need('Groth16Verifier key coordinates = pins', all(k.get(n) == v for n, v in pins.GROTH16_KEY_PINS.items()),
-           [n for n, v in pins.GROTH16_KEY_PINS.items() if k.get(n) != v])
+    problems = key_pin_problems(sp1.solidity_constants(gv))
+    g.need('Groth16Verifier key constants = pins: every coordinate of every point, and no other key constant',
+           not problems, problems)
     vk5, _ = sp1.vk_from_gnark_solidity(gv)
+    g.need('parsed v6.1.0 key = the key the pins give', vk5 == pinned_key(), 'the parsed points differ from the pins')
     g.need('Groth16 key has five public inputs (v6.1.0 wrapper)', len(vk5['ic']) == 6, len(vk5['ic']) - 1)
     vkey, vk_root = int(inst.program_vkey, 16), int(pins.VK_ROOT, 16)
     vk1 = sp1.one_input_key(vk5, pins.SP1_LAYOUT, program_vkey=vkey, exit_code=0, vk_root=vk_root, proof_nonce=0)
@@ -296,13 +323,17 @@ def harness_config(entropy, abf, inst):
                 escrow=inst.escrow)
 
 
-def compile_update_leaf(vk1, consts, out_dir, inst, program_bytes=160000):
-    """liquid.BridgeGuestVerifier for the folded key, padded so its witness budget covers its cost."""
+def compile_update_leaf(vk1, consts, out_dir, inst, rehearsal_config=None):
+    """liquid.BridgeGuestVerifier for the folded key, with its one public input opened.  Its bytes earn more budget
+    than it costs: no padding.  With the harness configuration `rehearsal_config`, also the evidence budget_gate
+    checks (budget_rehearsal)."""
     pinned = dict(config=sepolia_config(), escrow=bytes.fromhex(inst.escrow), slot_key=pins.SLOT_KEY)
+    if len(vk1['ic']) != INPUTS + 1:
+        raise Gate(f'update leaf: the folded key has {len(vk1["ic"]) - 1} public inputs, not {INPUTS}')
     t0 = time.time()
-    _, g0, cost0 = liquid.BridgeGuestVerifier.compile(vk1, consts, **pinned)
-    pad = liquid.BridgeGuestVerifier.padding(cost0, program_bytes, (g0.witness_bits() + 7) // 8, control_bytes=97)
-    text, _, est = liquid.BridgeGuestVerifier.compile(vk1, consts, pad_blocks=pad, **pinned)
+    text, g, est = liquid.BridgeGuestVerifier.compile(vk1, consts, opened=0, **pinned)
+    if g.n != INPUTS:
+        raise Gate(f'update leaf: compiled with {g.n} public inputs, not {INPUTS}')
     path = Path(out_dir) / 'update_leaf.simpl'
     path.write_text(text)
     # The text form is what tools/sg16-harness `run` parses (test_bridge_guest.py --full runs it there); its CMR is
@@ -312,12 +343,197 @@ def compile_update_leaf(vk1, consts, out_dir, inst, program_bytes=160000):
         raise Gate(f'update leaf CMR: {c}')
     key = (f'SP1 {pins.SP1_LAYOUT} Groth16Verifier.sol (pinned coordinates), folded: program vkey '
            f'{inst.program_vkey}, exit code 0, VK_ROOT, proof nonce 0')
-    return dict(cmr=c['cmr'], program=str(path), text_sha256=pins.sha(text.encode()).hex(), text_bytes=len(text),
-                pad_blocks=pad, predicted_cost=est, compile_seconds=round(time.time() - t0), key=key)
+    leaf = dict(cmr=c['cmr'], program=str(path), text_sha256=pins.sha(text.encode()).hex(), text_bytes=len(text),
+                generator=loaded_generator(), generator_source_sha256=SOURCE_SHA256, inputs=g.n, predicted_cost=est,
+                key=key)
+    if rehearsal_config is not None:
+        leaf['budget'] = dict(witness_bits=g.witness_bits(),
+                              rehearsal=budget_rehearsal(rehearsal_config, inst, out_dir))
+    leaf['compile_seconds'] = round(time.time() - t0)
+    return leaf
 
 
-def update_verifier(keys, consts, pad_blocks, inst):
-    return liquid.BridgeGuestVerifier(Fp(Num()), keys['vk1'], consts, b=bounds(), pad_blocks=pad_blocks,
+def budget_rehearsal(cfg, inst, out_dir):
+    """Spend a leaf like the update leaf in a complete harness update transaction, and report its measured cost,
+    budget, sizes and weight.  The leaf has the same generator, constants, config, escrow and slot and one public
+    input, and a synthetic five-input key folded like the SP1 key, so that a valid proof exists.  Its predicted
+    cost equals the update leaf's: for the real SP1 key, the instance's own leaf and its rehearsal both predict
+    48,884,728 mWU (target/groth16-optimization/repair-real-proof/manifest.json), and budget_gate requires the two
+    to be equal.  Its program size stands for the update leaf's only as measured: 34,952 bytes against the real
+    spend's 34,957 there.  So `update` checks each real spend's program size against this one (program_delta_gate)."""
+    consts, config, escrow = harness.consts(cfg), sepolia_config(), bytes.fromhex(inst.escrow)
+    h = lambda label: pins.sha(b'sg16 update leaf budget rehearsal: ' + label)  # noqa: E731
+    head, new_head = 8192 * 1000 + 64, 8192 * 1000 + 96
+    c = dict(header=h(b'header'), committee=h(b'committee'), acc=h(b'accumulator'), claimed_root=pins.claimed_root([]),
+             sibling=h(b'claim leaf'), new_header=h(b'successor header'), sync=h(b'successor committee'),
+             new_acc=h(b'successor accumulator'))
+    fields = dict(lc=liquid.lc(head, c['header'], c['committee']), acc=c['acc'], sibling=c['sibling'],
+                  new_lc=liquid.lc(new_head, c['new_header'], c['sync']), new_acc=c['new_acc'],
+                  exec_root=h(b'execution root'), claimed_root=c['claimed_root'], exec_block=9_100_000,
+                  new_head=new_head)
+    x = liquid.public_input(config, escrow, pins.SLOT_KEY, fields)
+    fixed = dict(program_vkey=int(inst.program_vkey, 16), exit_code=0, vk_root=int(pins.VK_ROOT, 16), proof_nonce=0)
+    vk5, proof, _ = B.groth16_instance(5, seed=7007, inputs=sp1.wrapper_inputs(pins.SP1_LAYOUT, public_values_digest=x,
+                                                                                **fixed))
+    vk1 = sp1.one_input_key(vk5, pins.SP1_LAYOUT, **fixed)
+    if len(vk1['ic']) != INPUTS + 1:
+        raise Gate(f'update leaf budget rehearsal: the folded key has {len(vk1["ic"]) - 1} public inputs')
+    pinned = dict(config=config, escrow=escrow, slot_key=pins.SLOT_KEY, opened=0)
+    text, gs, est = liquid.BridgeGuestVerifier.compile(vk1, consts, **pinned)
+    if gs.n != INPUTS:
+        raise Gate(f'update leaf budget rehearsal: compiled with {gs.n} public inputs, not {INPUTS}')
+    wit = liquid.BridgeGuestVerifier(Fp(Num()), vk1, consts, b=bounds(), **pinned).witness_fields(proof, [x], fields)
+    if wit is None:
+        raise Gate('update leaf budget rehearsal: the synthetic proof does not verify')
+    tx = dict(state_txid=h(b'state txid').hex(), state_vout=0, fee_txid=h(b'fee txid').hex(), fee_vout=1,
+              fee_value=4000, old_abf=0, head=head, new_head=new_head, **{k: v.hex() for k, v in c.items()})
+    path = Path(out_dir) / 'budget_rehearsal.simpl'
+    path.write_text(text)
+    case = dict(name='budget rehearsal', expect='ok', tx=tx, mutations=[], witness=gs.witness_value(wit))
+    try:
+        _, (r,) = harness.run(path, dict(config=cfg, cases=[case]), name='budget_rehearsal_cases.json')
+    except SystemExit as e:
+        raise Gate(f'update leaf budget rehearsal: the harness failed: {e}') from e
+    return dict(ok=r.get('ok') is True, key='synthetic five-input key, folded', inputs=gs.n, predicted_cost=est,
+                cost=r.get('cost'), budget_mwu=r.get('budget'), program_bytes=r.get('program_bytes'),
+                witness_bytes=r.get('witness_bytes'), tx_weight=r.get('tx_weight'), witness_bits=gs.witness_bits(),
+                failure=None if r.get('ok') else f"{r.get('stage')}: {r.get('error')}")
+
+
+def loader_diagnosis():
+    """Why the loaded generator is not pinned, shortest reason first (sg16/ref.py inspect): the check's error, the
+    first differences, an override, or another commit."""
+    s = GENERATOR_STATE
+    if s['error']:
+        return f"check failed: {s['error']}"
+    if s['changes']:
+        return f"{len(s['changes'])} difference(s): {'; '.join(s['changes'][:3])}"
+    if s['override']:
+        return 'an SG16_REF override'
+    return f"at {s['commit']}" if s['commit'] != PIN else 'pinned'
+
+
+def loaded_generator():
+    """The name a manifest records for the loaded generator: GENERATOR only if it is the pinned source."""
+    if PINNED:
+        return GENERATOR
+    return f'simple-groth16 {COMMIT} (not pinned: {loader_diagnosis()}; source sha256 {SOURCE_SHA256})'
+
+
+def generator_gate(g, leaf):
+    """The update leaf and the loaded generator are both the pinned generator, whose witness this checkout writes:
+    a clean vendor/simple-groth16 at the pin, not an override or an edited tree (sg16/ref.py inspect)."""
+    g.need(f'the loaded generator is the pinned {GENERATOR}, unedited', PINNED, loader_diagnosis())
+    g.need(f'manifest update leaf was compiled by {GENERATOR}', leaf.get('generator') == GENERATOR,
+           'a leaf from another generator takes another witness: use the checkout that compiled it')
+
+
+def natural_bits(n):
+    """Bits of rust-simplicity's code for the positive integer n (bit_encoding/encode.rs encode_natural): a 1 and the
+    bits below the top one of n, then of that bit count, and so on down to 1, then a 0."""
+    bits = 1
+    while n > 1:
+        n = n.bit_length() - 1
+        bits += 1 + n
+    return bits
+
+
+def program_variation(program_bytes, inputs):
+    """The most bytes by which the pruned programs of two spends of one leaf can differ, for a leaf with `inputs` public
+    inputs whose pruned program measured `program_bytes`.  From rust-simplicity's post-order encoding, which names a
+    node's children by their distance back (encode_natural) and writes a pruned branch as a hidden node of
+    HIDDEN_BITS (bit_encoding/encode.rs).
+
+    Only the public input changes what pruning keeps, and only in the table windows (pairing.py windows, curve.py
+    select_const); every other case node takes the same branch in every spend.  Neither choice changes the number of
+    nodes, so no distance outside a window's own nodes changes:
+
+      - each bit of a window is a case node of that window's tree, with two subtrees of one shape.  Pruning keeps one
+        and writes the other as one hidden node (AssertL or AssertR), so only the order of the two changes: the
+        distance to the child written first, one code of at most natural_bits(N) bits in a program of N nodes.  The
+        kept leaf, `comp unit <constant>`, also moves within the window, and with it its distance back to the one
+        shared `unit` node: one more code per window.
+      - the aligned windows share one digit function (curve.py digit_fn), one case node per bit, each
+        `case (injl (drop f)) (injr (drop f))` (curve.py:284).  The encoder shares a node with its earlier
+        occurrence (EncodeSharing: by identity, a hidden node by commitment), so `drop f` is one node for both
+        branches, and the pruner keeps a branch that any of the windows' calls takes.  A branch hidden in one spend
+        and kept in another is one `injl` or `injr` node against one hidden node: the same number of nodes, at most
+        HIDDEN_BITS more or less, and the codes of the case node's two children and the kept branch's `drop f` move.
+
+    A node takes at least 4 bits, so N is at most 2 per byte; 4,096 bytes of room cover the variation itself.  Add the
+    program's last, partial byte and 2 bytes for its witness-stack length prefix, which grows from 3 to 5 bytes at
+    2^16 bytes.  This bounds spends of one leaf; it does not bound how two leaves for different keys differ
+    (budget_rehearsal), which program_delta_gate measures instead."""
+    wins = windows(inputs)
+    digits = {w for _, lo, w in wins if w & (w - 1) == 0 and lo % w == 0 and 256 % w == 0}
+    code = natural_bits(2 * (program_bytes + 4096))
+    bits = (sum(w for _, _, w in wins) + len(wins)) * code + sum(digits) * (HIDDEN_BITS + 3 * code)
+    return (bits + 7) // 8 + 1 + 2
+
+
+def budget_gate(g, rehearsal, leaf):
+    """The update leaf fits the input budget of each of its spends, by the measured `rehearsal` (budget_rehearsal).
+    `leaf` is {cost, inputs, witness_bits} of the update leaf: regenerated from the instance key where it matters
+    most (bootstrap_gates, leaf_shape), the manifest's record otherwise.  The rehearsal spend must have executed at
+    its predicted cost, which must be the update leaf's cost, with its one public input and witness width; less
+    1,000 mWU per byte of program_variation, its input budget must still cover that cost; and with its program that
+    much larger, its transaction must stay below standard weight.  A program byte earns 1,000 mWU of budget and
+    weighs 1 WU.  The rehearsal's program size stands for the update leaf's only as measured (budget_rehearsal), so
+    each update checks its spend's program size against it (program_delta_gate) and measures the budget of its own
+    spend before it is written."""
+    r, cost = rehearsal or {}, leaf.get('cost')
+    g.need('update leaf budget rehearsal: the spend executed at its predicted cost',
+           r.get('ok') is True and r.get('cost') == r.get('predicted_cost'), r)
+    g.need('update leaf budget rehearsal: predicted cost = the update leaf\'s',
+           isinstance(cost, int) and r.get('predicted_cost') == cost, dict(rehearsal=r.get('predicted_cost'), leaf=cost))
+    g.need(f'update leaf and its rehearsal: {INPUTS} public input and the same witness width',
+           r.get('inputs') == leaf.get('inputs') == INPUTS and r.get('witness_bits') == leaf.get('witness_bits'),
+           dict(rehearsal=dict(inputs=r.get('inputs'), witness_bits=r.get('witness_bits')), leaf=leaf))
+    budget, weight, size = r.get('budget_mwu'), r.get('tx_weight'), r.get('program_bytes')
+    measured = all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in (cost, budget, weight, size))
+    less = program_variation(size, INPUTS) if measured else None
+    g.need("update leaf cost <= rehearsed input budget less 1,000 mWU per byte of program_variation, and rehearsed "
+           "weight plus that variation below standard weight",
+           measured and cost <= budget - 1000 * less and weight + less < pins.STANDARD_TX_WEIGHT,
+           dict(cost=cost, budget_mwu=budget, program_bytes=size, variation_bytes=less, tx_weight=weight))
+
+
+def program_delta_gate(g, leaf, program_bytes):
+    """A real spend's pruned program (`program_bytes`, measured by sg16-testnet update) is within program_variation
+    of the rehearsal's.  Spends of one leaf always are; a larger difference means the rehearsal, a leaf for another
+    key, does not represent this one, and the budget it showed is not evidence for it."""
+    r = (leaf.get('budget') or {}).get('rehearsal') or {}
+    size = r.get('program_bytes')
+    ok = all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in (size, program_bytes))
+    less = program_variation(size, INPUTS) if ok else None
+    g.need('the spend\'s pruned program is within program_variation of the budget rehearsal\'s',
+           ok and abs(program_bytes - size) <= less,
+           dict(program_bytes=program_bytes, rehearsal_program_bytes=size, variation_bytes=less))
+
+
+def recorded_shape(leaf):
+    """{cost, inputs, witness_bits} of an update leaf as its manifest records them."""
+    return dict(cost=leaf.get('predicted_cost'), inputs=leaf.get('inputs'),
+                witness_bits=(leaf.get('budget') or {}).get('witness_bits'))
+
+
+def leaf_shape(g, m, inst, leaf):
+    """{cost, inputs, witness_bits} of the update leaf regenerated for the instance key: the manifest's program text
+    must be the pinned generator's output, so budget_gate checks the program's own cost, input count and witness
+    width, not recorded numbers.  The record must agree too, as update and export-proof read it."""
+    keys = sp1_keys(g, inst)
+    text, gen, est = liquid.BridgeGuestVerifier.compile(keys['vk1'], m['constants'], opened=0, config=sepolia_config(),
+                                                        escrow=bytes.fromhex(inst.escrow), slot_key=pins.SLOT_KEY)
+    g.need("update leaf program = the pinned generator's output for the instance key (SHA-256)",
+           pins.sha(text.encode()).hex() == leaf['text_sha256'])
+    shape = dict(cost=est, inputs=gen.n, witness_bits=gen.witness_bits())
+    g.need('the manifest records the regenerated leaf\'s cost, input count and witness width',
+           recorded_shape(leaf) == shape, dict(recorded=recorded_shape(leaf), regenerated=shape))
+    return shape
+
+
+def update_verifier(keys, consts, inst):
+    return liquid.BridgeGuestVerifier(Fp(Num()), keys['vk1'], consts, b=bounds(), opened=0,
                                       config=sepolia_config(), escrow=bytes.fromhex(inst.escrow),
                                       slot_key=pins.SLOT_KEY)
 
@@ -361,10 +577,10 @@ def bridge_asset(g, funding_txid_display, funding_vout):
     return contract, entropy, asset, token
 
 
-def build_manifest(g, inst, out_dir, funding_txid_display, funding_vout, deployable, label, update_leaf=None,
-                   program_bytes=160000):
-    """inst: from instance(), which has recomputed its pins.  update_leaf None: compile the real-key update leaf
-    (minutes).  A dict with stand_in=True: local tests only."""
+def build_manifest(g, inst, out_dir, funding_txid_display, funding_vout, deployable, label, update_leaf=None):
+    """inst: from instance(), which has recomputed its pins.  update_leaf None: compile the real-key update leaf and
+    rehearse its budget (minutes); a real leaf must pass budget_gate, and a deployable one generator_gate.  A dict
+    with stand_in=True: local tests only."""
     contract, entropy, asset, token = bridge_asset(g, funding_txid_display, funding_vout)
     abf = pins.token_blinding(entropy)
     cfg = harness_config(entropy, abf, inst)
@@ -390,7 +606,13 @@ def build_manifest(g, inst, out_dir, funding_txid_display, funding_vout, deploya
                            toolchain='SimplicityHL f3fa882e / rust-simplicity a8896cf9 (tools/bootstrap-deps.py)')
     if update_leaf is None:
         keys = sp1_keys(g, inst)
-        update_leaf = compile_update_leaf(keys['vk1'], consts, out_dir, inst, program_bytes)
+        update_leaf = compile_update_leaf(keys['vk1'], consts, out_dir, inst, rehearsal_config=cfg)
+    real_leaf = not update_leaf.get('stand_in')
+    if real_leaf:
+        # just compiled here: the record is the generator's own output
+        budget_gate(g, (update_leaf.get('budget') or {}).get('rehearsal'), recorded_shape(update_leaf))
+        if deployable:
+            generator_gate(g, update_leaf)
     m['update_leaf'] = update_leaf
 
     s0 = initial_state(inst)
@@ -404,7 +626,6 @@ def build_manifest(g, inst, out_dir, funding_txid_display, funding_vout, deploya
            t['merkle_root'] == root.hex() and t['state_hash'] == s0['state_hash'], t)
     tree_keys = ('script_pubkey', 'address', 'output_key', 'merkle_root', 'update_control', 'claim_control')
     m['state_tree'] = {k: t[k] for k in tree_keys}
-    real_leaf = not update_leaf.get('stand_in')
     m['deployable'] = bool(deployable and real_leaf)
     m['gates'] = g.results
     write_json(mpath, m)
@@ -431,11 +652,10 @@ def cmd_manifest(a, g):
     out.mkdir(parents=True, exist_ok=True)
     if a.dry_run:
         m = build_manifest(g, inst, out, DRY_RUN_TXID, 0, False,
-                           'DRY RUN: placeholder bootstrap outpoint, not a transaction', program_bytes=a.program_bytes)
+                           'DRY RUN: placeholder bootstrap outpoint, not a transaction')
     else:
         m = build_manifest(g, inst, out, a.funding_txid, a.funding_vout, True,
-                           'Manifest only: verify funding and bootstrap on Liquid before use',
-                           program_bytes=a.program_bytes)
+                           'Manifest only: verify funding and bootstrap on Liquid before use')
     return dict(manifest=str(out / 'manifest.json'), deployable=m['deployable'], address=m['state_tree']['address'],
                 update_cmr=m['update_leaf']['cmr'], claim_cmr=m['claim_leaf']['cmr'])
 
@@ -461,10 +681,12 @@ def cmd_check_artifact(a, g):
                 new_head=o['new_head'], exec_block=o['exec_block'], pairing_checked=not a.no_pairing)
 
 
-def bootstrap_gates(g, inst, m, mpath, s0path, local_test):
+def bootstrap_gates(g, inst, m, mpath, s0path, local_test, creating=False):
     """Re-derive what a bootstrap transaction commits forever instead of trusting the manifest's record of
     it: the manifest's instance, the initial state against the instance anchor, both leaf CMRs, and the state
-    script built from them."""
+    script built from them.  A new bootstrap (`creating`), and the check of any leaf that records its generator,
+    also regenerate the update leaf with the pinned generator and require its cost to fit the rehearsed budget.  A
+    public bootstrap of an older leaf, which records no generator, is checked by its CMR alone."""
     manifest_gates(g, m, inst)
     initial_state_gate(g, json.loads(Path(s0path).read_text()), inst)
     c = tool_ok(g, 'claim leaf recompiles from the manifest parameters', CLAIM_TOOL, 'cmr', mpath)
@@ -478,6 +700,12 @@ def bootstrap_gates(g, inst, m, mpath, s0path, local_test):
                pins.sha(program.read_bytes()).hex() == leaf['text_sha256'])
         u = tool_ok(g, 'update leaf program parses', TX_TOOL, 'cmr', program)
         g.need('update leaf CMR recomputed from the program = manifest update CMR', u['cmr'] == leaf['cmr'], u['cmr'])
+        if creating or 'generator' in leaf:
+            generator_gate(g, leaf)
+            shape = leaf_shape(g, m, inst, leaf)
+            # Measured again here, not read from the manifest: the leaf is committed forever by this bootstrap.
+            with tempfile.TemporaryDirectory(prefix='budget-rehearsal-') as tmp:
+                budget_gate(g, budget_rehearsal(m['harness_config'], inst, tmp), shape)
     t = tool_ok(g, 'state tree of the initial state', TX_TOOL, 'tree', mpath, s0path)
     g.need('state script = manifest state tree', t['script_pubkey'] == m['state_tree']['script_pubkey'],
            t['script_pubkey'])
@@ -491,7 +719,7 @@ def cmd_verify_bootstrap(a, g):
     inst = instance(g, a.instance)
     m = load_manifest(a.manifest)
     s0 = Path(a.manifest).parent / 'initial_state.json'
-    bootstrap_gates(g, inst, m, a.manifest, s0, a.local_test)
+    bootstrap_gates(g, inst, m, a.manifest, s0, a.local_test, creating=False)
     r = tool_ok(g, 'bootstrap transaction issued the only token into the state UTXO', TX_TOOL, 'check-bootstrap',
                 a.manifest, s0, a.bootstrap_tx)
     if a.escrow_asset:
@@ -504,7 +732,7 @@ def cmd_bootstrap(a, g):
     inst = instance(g, a.instance)
     m = load_manifest(a.manifest)
     s0 = Path(a.manifest).parent / 'initial_state.json'
-    bootstrap_gates(g, inst, m, a.manifest, s0, a.local_test)
+    bootstrap_gates(g, inst, m, a.manifest, s0, a.local_test, creating=True)
     args = ['bootstrap', a.manifest, s0, a.funding_tx, m['bootstrap']['funding_vout'], a.fee, a.change_spk or '-',
             a.out]
     r = tool_ok(g, 'bootstrap transaction gates (rust-elements)', TX_TOOL, *args, *local_test_flag(a))
@@ -516,7 +744,13 @@ def cmd_bootstrap(a, g):
 def prepare_update(g, inst, m, state, art, local_test=False):
     """The transaction-independent update witness and successor, shared by the CLI and browser export."""
     manifest_gates(g, m, inst)
-    g.need('manifest has a compiled update leaf', not m['update_leaf'].get('stand_in') or local_test)
+    leaf = m['update_leaf']
+    g.need('manifest has a compiled update leaf', not leaf.get('stand_in') or local_test)
+    generator_gate(g, leaf)
+    if not leaf.get('stand_in'):
+        # The manifest's record, as bootstrap measured it; what admits the update is its own spend's measured budget
+        # (sg16-testnet update, the browser builder) and, for `update`, program_delta_gate.
+        budget_gate(g, (leaf.get('budget') or {}).get('rehearsal'), recorded_shape(leaf))
     claimed, root = state_claimed(g, state)
     keys = sp1_keys(g, inst)
     r = check_artifact(g, art, keys, inst, state)
@@ -531,14 +765,14 @@ def prepare_update(g, inst, m, state, art, local_test=False):
                   exec_block=o['exec_block'], new_head=o['new_head'])
     modelled = liquid.public_values(sepolia_config(), bytes.fromhex(inst.escrow), pins.SLOT_KEY, fields)
     g.need('public values = liquid.py model of the witness fields', modelled == r['public_values'])
-    gn = update_verifier(keys, m['constants'], m['update_leaf']['pad_blocks'], inst)
+    gn = update_verifier(keys, m['constants'], inst)
     wit = gn.witness_fields(r['proof'], [r['digest']], fields)
     g.need('numeric Groth16 model accepts the real proof with the folded key', wit is not None)
     gn.verify(gn.num_input(wit))
     succ = art['successor']
     new = state_record(o['new_head'], b32(succ['header']), b32(succ['committee']), o['slot_value'], claimed,
                        exec_root=o['exec_root'].hex(), exec_block=o['exec_block'])
-    return {'w_in': gn.witness_value(wit)}, new
+    return gn.witness_value(wit), new
 
 
 def cmd_update(a, g):
@@ -553,6 +787,8 @@ def cmd_update(a, g):
     args = ['update', a.manifest, m['update_leaf']['program'], wpath, a.state, npath, a.state_tx, a.state_vout,
             a.fee_tx, a.fee_vout, out]
     t = tool_ok(g, 'update transaction gates and node-like execution', TX_TOOL, *args, *local_test_flag(a))
+    if not m['update_leaf'].get('stand_in'):
+        program_delta_gate(g, m['update_leaf'], t.get('program_bytes'))
     return dict(t, new_state=str(npath))
 
 
@@ -896,7 +1132,6 @@ def parser():
     p.add_argument('--funding-vout', type=int, default=0)
     p.add_argument('--dry-run', action='store_true')
     p.add_argument('--out', default=str(TARGET / 'testnet'))
-    p.add_argument('--program-bytes', type=int, default=160000)
 
     p = command('check-artifact')
     p.add_argument('--artifact', required=True)

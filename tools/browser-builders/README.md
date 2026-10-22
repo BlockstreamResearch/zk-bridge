@@ -72,7 +72,7 @@ Input limits are 64 MiB for the complete JSON string, 8 MiB of hex per previous 
 
 ## Proof preparation boundary
 
-The SP1 proof alone is insufficient for the existing generated Simplicity verifier. Its witness includes BN254 MSM and Miller-loop hints and extension-field values calculated by the existing Python proof preparation code. The proof step exports the compiled program and witness plus the successor state; transaction assembly stays in WASM. Compiling is independent of a transaction and does not imply that the proof is valid. The browser executes it against the actual transaction before returning the result.
+The SP1 proof alone is insufficient for the existing generated Simplicity verifier. Its witness includes B's slopes, the committed Miller values, the quotient of the pairing identity and its two challenges, calculated by the existing Python proof preparation code. The proof step exports the compiled program and witness plus the successor state; transaction assembly stays in WASM. Compiling is independent of a transaction and does not imply that the proof is valid. The browser executes it against the actual transaction before returning the result.
 
 The witness binds the old LC, accumulator, claimed root, claim-leaf sibling, and the new LC, accumulator, head and execution block/root. It contains no fee input or transaction outpoint. A claim changing the claimed root makes an exported witness stale. Regenerating the witness from the same proof does not require rerunning SP1. The browser must reject a bundle whose old state does not match the live state.
 

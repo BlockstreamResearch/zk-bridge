@@ -854,12 +854,12 @@ def synthetic_update(m, mdir, inst, fund, boot, check, run, report):
     boot_s = sdir / 'bootstrap.hex'
     code, rb = run(A.TX_TOOL, 'bootstrap', msp, s0s, fund, 0, 1000, CHANGE_SPK, boot_s, '--local-test')
     check('bootstrap of the synthetic-key tree', code == 0, rb)
-    gn = A.update_verifier(dict(vk1=vk1s), k, leaf['pad_blocks'], inst)
+    gn = A.update_verifier(dict(vk1=vk1s), k, inst)
     wit = gn.witness_fields(proof, [x], fields)
     if not check('synthetic proof witness builds', wit is not None):
         return
     gn.verify(gn.num_input(wit))
-    wpath = A.write_json(sdir / 'update.witness.json', {'w_in': gn.witness_value(wit)})
+    wpath = A.write_json(sdir / 'update.witness.json', gn.witness_value(wit))
     npath = A.write_json(sdir / 'new_state.json',
                          A.state_record(succ['slot'], succ['header'], succ['committee'], fields['new_acc'], [],
                                         exec_root=fields['exec_root'].hex(), exec_block=fields['exec_block']))
@@ -924,7 +924,7 @@ def synthetic_update(m, mdir, inst, fund, boot, check, run, report):
           code == 3 and 'program CMR' in r.get('failed_gate', ''), r)
     tampered = dict(wit, points=list(wit['points']))
     tampered['points'][0] ^= 1
-    tpath = A.write_json(sdir / 'tampered.witness.json', {'w_in': gn.witness_value(tampered)})
+    tpath = A.write_json(sdir / 'tampered.witness.json', gn.witness_value(tampered))
     code, r = run(A.TX_TOOL, 'update', msp, leaf['program'], tpath, s0s, npath, boot_s, 0, fee, 0, sdir / 'bad.hex',
                   '--local-test')
     check('a tampered proof is rejected by the update leaf',
@@ -945,7 +945,7 @@ def real_update(inst, proof_art, proof_path, rf, fund, check, run, report):
     check('real-key update leaf compiled; every manifest gate passed; not deployable (fictional funding)',
           mr['deployable'] is False and not leaf.get('stand_in'), leaf)
     report['real_key_manifest'] = dict(update_cmr=leaf['cmr'], claim_cmr=mr['claim_leaf']['cmr'],
-                                       address=mr['state_tree']['address'], pad_blocks=leaf['pad_blocks'],
+                                       address=mr['state_tree']['address'], generator=leaf['generator'],
                                        predicted_cost=leaf['predicted_cost'], text_bytes=leaf['text_bytes'],
                                        compile_seconds=leaf['compile_seconds'], gates=len(g.results))
     mrp, s0r = rdir / 'manifest.json', rdir / 'initial_state.json'

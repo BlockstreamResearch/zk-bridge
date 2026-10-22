@@ -6,7 +6,8 @@ leaves come from the witness, so the transaction rules cannot see what the proof
 instead hands the public input, and fields carried in the witness, to rules computed from introspection
 jets; a subclass (bridge-guest/liquid.py `BridgeGuestVerifier`) supplies the fields and the rules through the
 _state_* and _open hooks.  Verifier and rules are one program (one taproot leaf), so neither can be satisfied
-alone.
+alone.  The pairing check's Fiat-Shamir transcript hashes the public input word the rules open
+(groth/pairing.py `setup`), so the challenges depend on it too.
 
 Token rules (`token_rules`), shared with the claim leaf: the state output holds the bridge asset's only
 reissuance token, blinded with one of two public factors A and B that alternate with every spend, and the
@@ -19,14 +20,12 @@ pruning.
 """
 from .ref import REF  # noqa: F401
 from . import jets  # noqa: F401  (registers the Elements jet costs)
-from groth import bn254
-from groth.dsl import ensure, wv, wpair, wbit, wbalanced, Tbalanced, balanced_paths
-from groth.fp import Fp, Val
-from groth.groth16 import Groth16, PAD_BLOCK, PAD_BLOCK_COST
-from groth.miller import N_STEPS, bounds
-from groth.sym import E, Sym, words, is_sym, SHA_CTX_W
+from groth import pairing
+from groth.dsl import ensure, wpair, balanced_paths
+from groth.fp import Fp
+from groth.groth16 import Groth16
+from groth.sym import E, Sym, is_sym, SHA_CTX_W
 
-R = bn254.R
 NUMS = 0x50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0
 FAIL = 'fail 0x5347313642524944474546414c4c0001'  # 128-bit entropy of the hidden, never-taken branches
 
@@ -126,13 +125,16 @@ def bind_masked(be, h, a):
 class BridgeVerifier(Groth16):
     """simple-groth16's verifier with one public input opened by transaction rules.
 
-    Witness: (main, state[, padding]); main is the reference layout (public inputs, MSM slopes, -A, B, C,
-    residue witness, slopes of B), and `state` the fields the rules read.  A subclass gives the fields and the
-    rules through the _state_* and _open hooks.  `opened` is the index of the public input the rules open; any
-    other inputs (keys with several variable inputs) are only range-checked."""
+    Witness node w_in: (main, state); main is the reference layout (public inputs, then -A, B, C, a_c and the
+    challenges r, z), and `state` the fields the rules read.  Each loop step's leaf and the quotient Q are
+    witness nodes of their own (groth/pairing.py `witness_nodes`).  A subclass gives the fields and the rules
+    through the _state_* and _open hooks.  `opened` is the index of the public input the rules open; any other
+    inputs (keys with several variable inputs) are only range-checked and hashed into the transcript.
 
-    def __init__(self, fp, vk, consts, w=5, b=None, pad_blocks=0, opened=0):
-        super().__init__(fp, vk, w, b=b, pad_blocks=pad_blocks, depth=0)
+    The program's bytes earn more budget than it costs, so the witness carries no padding."""
+
+    def __init__(self, fp, vk, consts, b=None, opened=0):
+        super().__init__(fp, vk, b=b, depth=0)
         ensure(0 <= opened < self.n, 'opened input index')
         self.consts, self.opened = consts, opened
 
@@ -164,83 +166,59 @@ class BridgeVerifier(Groth16):
         """Numeric model of the binding of public input `a`."""
         raise NotImplementedError
 
-    def _parts(self):
-        return ['main', 'state'] + (['pad'] if self.pad_blocks else [])
-
     def main_bits(self):
-        return 256 * (self.n + self.n * self.nwin + 32) + 2 + 512 * N_STEPS
+        return 256 * self.n + pairing.witness_bits()
 
     def witness_bits(self):
-        return self.main_bits() + self._state_bits() + 4096 * self.pad_blocks
-
-    def _main_type(self):
-        T = lambda k: Tbalanced(['2^256'] * k)  # noqa: E731
-        return (f'(({T(self.n)} * {T(self.n * self.nwin)}) * (({T(8)} * ({T(12)} * {T(12)})) * '
-                f'((2 * 2) * {Tbalanced(["(2^256 * 2^256)"] * N_STEPS)})))')
+        """The bits of w_in (the other witness nodes are read where they are)."""
+        return self.main_bits() + self._state_bits()
 
     def witness_type(self):
-        parts = dict(main=self._main_type, state=self._state_type, pad=lambda: Tbalanced([PAD_BLOCK] * self.pad_blocks))
-        return Tbalanced([parts[p]() for p in self._parts()])
+        return f'({super().witness_type()} * {self._state_type()})'
 
     def witness_value(self, wit):
-        W = lambda ws: wbalanced([wv(256, x) for x in ws])  # noqa: E731
-        main = wpair(wpair(W(wit['scalars']), W(wit['msm_hints'])),
-                     wpair(wpair(W(wit['points']), wpair(W(wit['c']), W(wit['cinv']))),
-                           wpair(wpair(wbit(wit['s'] >> 1), wbit(wit['s'] & 1)),
-                                 wbalanced([wpair(wv(256, lx), wv(256, ly)) for lx, ly in wit['hints']]))))
-        parts = dict(main=lambda: main, state=lambda: self._state_value(wit),
-                     pad=lambda: wbalanced([wbalanced([wv(512, 0)] * 8) for _ in range(self.pad_blocks)]))
-        return wbalanced([parts[p]() for p in self._parts()])
+        """The witness as harness value specs (tools/sg16-harness), by witness node."""
+        nodes = super().witness_value(wit)
+        nodes['w_in'] = wpair(nodes['w_in'], self._state_value(wit))
+        return nodes
 
-    def witness_shape(self, pad=True):
-        bit = lambda: E('', 1, 0)  # noqa: E731
-        main = [[words(self.n), words(self.n * self.nwin)],
-                [[words(8), [words(12), words(12)]], [[bit(), bit()], [E('', 512, 0) for _ in range(N_STEPS)]]]]
-        parts = dict(main=main, state=self._state_shape(), pad=[E('', 4096, 0) for _ in range(self.pad_blocks)])
-        return [parts[p] for p in self._parts() if pad or p != 'pad']
+    def witness_shape(self):
+        return [super().witness_shape()[0], self._state_shape()]
 
     def num_input(self, wit):
-        main = [[wit['scalars'], wit['msm_hints']],
-                [[wit['points'], [wit['c'], wit['cinv']]], [[wit['s'] >> 1, wit['s'] & 1], wit['hints']]]]
-        parts = dict(main=main, state=self._num_state(wit), pad=[0] * self.pad_blocks)
-        return [parts[p] for p in self._parts()]
+        return [super().num_input(wit)[0], self._num_state(wit)]
 
     def verify(self, acc):
-        be, cv = self.be, self.cv
-        parts = dict(zip(self._parts(), acc))
-        (scalars, msm_hints), _ = parts['main']
-        sc = [Val(a, R - 1) for a in scalars]
-        if is_sym(be):
-            state = cv.msm_sym(sc, be.subtree(msm_hints), self.tables, self.start, self.w, self.nbits)
-            self.parts = {'msm': state.c}
-            shape = [[E('', 256, 0), E('', 256, 0), words(self.n)], self.witness_shape(pad=False)[0]]
-            out = be.with_env(be.pair(state, be.proj(balanced_paths(len(self._parts()))[0], self.main_bits())),
-                              shape, self.checks)
-            opened = self._open(be, parts['state'], scalars[self.opened])
-            self.parts['rules and binding'] = opened.c
-            extra = [opened] + (self.consume_padding(parts['pad']) if self.pad_blocks else [])
-            return be.checks([out] + extra)
-        # numeric model: the fields stand in for the introspection
-        hints = [[Val(msm_hints[i * self.nwin + j], 0) for j in range(self.nwin)] for i in range(self.n)]
-        (x, y), _ = cv.msm(sc, hints, self.tables, self.start, self.w, self.nbits)
-        self._num_open(parts['state'], scalars[self.opened])
-        return self.checks([[x.e, y.e, scalars], parts['main']])
+        be = self.be
+        main, state = acc
+        a = main[0][self.opened]
+        if not is_sym(be):  # numeric model: the fields stand in for the introspection
+            self.checks(main)
+            self._num_open(state, a)
+            return 0
+        out = be.with_env(be.proj(balanced_paths(2)[0], self.main_bits()), self.witness_shape()[0], self.checks)
+        opened = self._open(be, state, a)
+        self.parts['rules and binding'] = opened.c
+        return be.checks([out, opened])
 
     @classmethod
-    def compile(cls, vk, consts, w=5, pad_blocks=0, b=None, **kw):
-        """(program text, generator, predicted cost in mWU)."""
+    def compile(cls, vk, consts, b=None, **kw):
+        """(program text, generator, predicted cost in mWU).
+
+        The loop state's bounds (pairing.bounds) are a fixed point found on the numeric backend, which the CRT
+        arithmetic of every step assumes of its inputs.  Building the program records the bound of each step's
+        outputs (pairing.py step_body, qchunk_body, `<name>_out`); they are checked here against the fixed point, so
+        that a step whose outputs could exceed what the next step assumes stops the build instead of wrapping.  The
+        sampled `<name>_out` values that come with the bounds are dropped first, so that only this build's step bodies
+        set the values checked."""
         be = Sym(0)
-        g = cls(Fp(be), vk, consts, w, b=b or bounds(), pad_blocks=pad_blocks, **kw)
+        b = {k: v for k, v in (b or pairing.bounds()).items() if not k.endswith('_out')}
+        g = cls(Fp(be), vk, consts, b=b, **kw)
         body = g.program()
+        state = ('N', 'D', 'acc', 'x', 'y', 'qz')
+        over = {nm: (g.pc.b.get(nm + '_out'), g.pc.b[nm]) for nm in state
+                if not isinstance(g.pc.b.get(nm + '_out'), int) or g.pc.b[nm + '_out'] > g.pc.b[nm]}
+        ensure(not over, f'loop-state bounds of the built program exceed their fixed point: {over}')
         be.em.define('w_in', 'witness', f'_ -> {g.witness_type()}')
         be.em.define('main', f'comp w_in ({body.t})')
         return be.em.text(), g, 2 * (100 + g.witness_bits()) + body.c
-
-    @staticmethod
-    def padding(cost, program_bytes, witness_bytes, control_bytes=65, margin=512):
-        """512-byte padding blocks that make the input's budget, 1000 mWU per witness-stack byte plus 50000,
-        cover the cost.  Stack: witness, program, CMR (32), control block and their CompactSize prefixes (13).
-        Each block also costs PAD_BLOCK_COST."""
-        need = (cost + 999) // 1000 - 50 - (program_bytes + witness_bytes + 32 + control_bytes + 13) + margin
-        k = max(0, (need + 511) // 512)
-        return k + (k * PAD_BLOCK_COST + 511999) // 512000

@@ -100,9 +100,9 @@ def main():
                                                                     config=fixtures.h('synthetic network config'),
                                                                     escrow=fixtures.h('synthetic escrow')[:20])
                     info['fold'] = dict(layout=a.fold, placeholders=not use_actual,
-                                        fixed_values={n: hex(v) for n, v in fixed.items()}, unpadded_cost=cost)
+                                        fixed_values={n: hex(v) for n, v in fixed.items()}, program_cost=cost)
                     print(f'  folded to one input with {"actual" if use_actual else "placeholder"} constants: '
-                          f'unpadded program cost {cost:,} mWU')
+                          f'program cost {cost:,} mWU')
             entry[f.name] = info
     for d, entry in report.items():
         for name, e in entry.items():

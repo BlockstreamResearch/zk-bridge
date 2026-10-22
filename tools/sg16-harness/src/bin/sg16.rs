@@ -9,8 +9,9 @@
 //       cost bound, sizes, the input's budget, the full transaction weight and whether Elements' amount,
 //       surjection and range proofs verify (rust-elements verify_tx_amt_proofs)
 //
-// cases.json: {"config": CONFIG, "cases": [{"name", "expect": "ok"|"fail", "witness": {"w_in": VALUE},
-//              "tx": TX, "mutations": [names]}]}; see src/bridge.rs for CONFIG, TX and the mutations.
+// cases.json: {"config": CONFIG, "cases": [{"name", "expect": "ok"|"fail", "witness": {"w_in": VALUE, ...},
+//              "tx": TX, "mutations": [names]}]}, the witness by node name (w_in, then the update leaf's wl0..wl87 and
+//              wq); see src/bridge.rs for CONFIG, TX and the mutations.
 use serde_json::{json, Value as Json};
 use sg16_harness::bridge::{self, stack_bytes, Config, Plan};
 use sg16_harness::program::{environment, Program};
