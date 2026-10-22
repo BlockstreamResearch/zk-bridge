@@ -1,6 +1,7 @@
 // Isolated local Chrome/CDP harness shared by browser regression scripts.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -16,6 +17,7 @@ export async function openChrome() {
     '--force-prefers-reduced-motion', '--no-first-run', '--no-default-browser-check',
     `--user-data-dir=${profile}`, 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const closed = new Promise((resolve) => browser.once('close', resolve));
   const pending = new Map();
   const listeners = new Set();
   let next = 0;
@@ -53,11 +55,11 @@ export async function openChrome() {
   }
   const close = async () => {
     if (browser.pid && browser.exitCode === null && browser.signalCode === null) {
-      const exited = new Promise((resolve) => browser.once('exit', resolve));
       browser.kill();
-      await exited;
     }
-    rmSync(profile, { recursive: true, force: true });
+    await closed;
+    // Chrome's helper processes can finish profile writes after the browser exits.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   };
   try {
     const { targetId } = await send('Target.createTarget', { url: 'about:blank' });

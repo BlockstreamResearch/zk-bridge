@@ -260,8 +260,11 @@ try {
 } finally {
   if (report.status === 'running') report.status = 'failed';
   writeFileSync(path.join(out, process.argv.includes('--screens-only') ? 'screens-check.json' : 'browser-check.json'), JSON.stringify(report, null, 2));
-  await browser?.close();
-  server.kill();
-  preview?.kill();
-  if (productionPage) unlinkSync(productionPage);
+  try {
+    await browser?.close();
+  } finally {
+    server.kill();
+    preview?.kill();
+    if (productionPage) unlinkSync(productionPage);
+  }
 }
