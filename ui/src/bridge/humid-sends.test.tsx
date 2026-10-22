@@ -367,6 +367,11 @@ describe('the update panel', () => {
     ));
     expect(tray.queryByText(/Not this update's store/)).toBeNull();
     expect(updateState().plan?.store).toMatchObject({ where: 'file', entry: { head: STORE.head, update: TXID, store: 'lc_stores/9000000.json' } });
+    expect(tray.getByLabelText('Store publication path')).toHaveTextContent('instances/fixture-instance/lc_stores/9000000.json');
+    expect(tray.getByLabelText('Store publication entry')).toHaveTextContent(JSON.stringify({
+      head: STORE.head, header: STORE.header.replace(/^0x/, ''), committee: STORE.committee.replace(/^0x/, ''),
+      update: TXID, store: 'lc_stores/9000000.json',
+    }));
     expect(send()).toBeEnabled();
     await user.click(send());
     expect(await tray.findByText(/Update[\s\S]*confirmed\./)).toBeInTheDocument();

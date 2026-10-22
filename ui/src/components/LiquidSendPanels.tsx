@@ -9,8 +9,9 @@ import { claimApproval, updateApproval } from '../bridge/approval';
 import { useBridge, useController } from '../bridge/context';
 import { short } from '../bridge/format';
 import type { LiquidSend, LiquidSent } from '../bridge/types';
+import { REPO } from '../content/links';
 import { FeePicker, type FeeCoin } from './FeePicker';
-import { Button, ExtLink, Hint, Linkified } from './primitives';
+import { Button, CopyLine, ExtLink, Hint, Linkified } from './primitives';
 
 function Facts({ rows }: { rows: [string, string][] }) {
   return <table className="facts"><caption className="sr-only">Transaction details</caption>
@@ -149,6 +150,14 @@ function StoreField({ plan }: { plan: UpdatePlan }) {
         onChange={(event) => void c.loadStore(event.target.files?.[0] ?? null)} />
     </details>}
     {storeText && <Button onClick={() => downloadStore(storeText)}>Download successor store</Button>}
+    {plan.store?.where === 'file' && s.instance && <details className="aside-form">
+      <summary>Share store</summary>
+      <p className="help">Open a pull request in the <ExtLink href={REPO}>repository</ExtLink> with the downloaded store at this path:</p>
+      <CopyLine label="Store publication path" value={`${s.instance.record}${plan.store.entry.store}`} />
+      <p className="help">Add this entry to the <code className="mono">preimages</code> list in
+        {' '}<code className="mono">{s.instance.record}lc_preimages.json</code>, preserving existing entries. Maintainers review and publish both files.</p>
+      <CopyLine label="Store publication entry" value={JSON.stringify(plan.store.entry)} />
+    </details>}
     <p className="help">Keep and share this file so anyone can make the next proof. Without it, they must recover the store from retained beacon data;
       recovery may fail if that data is unavailable. Loading it here does not publish it. <a href="#guide">Sharing options</a>.</p>
     <p className="error" role="alert">{storeError}</p>
