@@ -27,7 +27,9 @@ export function FeePicker({ kind, disabled, onCoin }: {
   const run = useRef(0);
   const working = useRef(false);
   const sats = /^\d+$/.test(amount) ? BigInt(amount) : 0n;
-  const valid = sats >= 546n && sats <= 50_000n && address.trim().length > 0;
+  const minimum = kind === 'update' ? 10_000n : 2_000n;
+  const validAmount = sats >= minimum && sats <= 50_000n;
+  const valid = validAmount && address.trim().length > 0;
   const reservations = c.getFeeReservationStatus();
   const clearChoice = () => {
     setCoins([]);
@@ -131,6 +133,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
       <input id={`${id}-amount`} inputMode="numeric" value={amount} onChange={(e) => { reset(); setAmount(e.target.value); }} />
       <p className="help">Find lists coins of at least this amount. Prepare sends exactly this amount.
         The {kind} spends the whole selected coin, up to 50,000 sats; no change.</p>
+      {!validAmount && <p className="error">Choose {minimum.toLocaleString('en')}–50,000 sats. The build checks the fee against the transaction's size.</p>}
     </div>
     <div className="actions"><Button disabled={!valid} onClick={() => void find()}>Find fee coins</Button></div>
     <p className="help">Humid's balance may omit this unblinded coin. Find fee coins checks the address directly.</p>
@@ -150,6 +153,8 @@ export function FeePicker({ kind, disabled, onCoin }: {
       <p className="help">Send {amount || '—'} sats to the address above. This separate transaction costs 500 sats and must confirm first.</p>
       <p className="help">Use Humid on desktop to sign. Fund its Receive → Confidential address with
         {' '}<ExtLink href={LIQUID_FAUCET}>testnet tL-BTC</ExtLink> first.</p>
+      {valid && <p className="help">Check Humid: output 0 pays {amount} tL-BTC sats to {address.trim()}, the fee is 500 sats,
+        and the remaining change returns to Humid. Decline if anything differs.</p>}
       <label className="check"><input type="checkbox" checked={owned} onChange={(e) => setOwned(e.target.checked)} /> I control this address in Humid.</label>
       <div className="actions"><Button disabled={!valid || !owned || held} onClick={() => void prepare()}>Prepare fee coin</Button></div>
       {held && <p className="help">Check Humid activity before preparing another coin. Use Find fee coins after confirmation.</p>}

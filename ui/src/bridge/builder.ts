@@ -32,8 +32,14 @@ export const buildTransaction: BuildTransaction = (kind, input, signal) => new P
   };
   worker.onmessage = ({ data }) => {
     finish();
-    if (data.error) reject(new Error(data.error));
-    else if (typeof data.result?.raw_tx !== 'string' || !/^[0-9a-f]+$/i.test(data.result.raw_tx)) {
+    if (data.error) {
+      const error = String(data.error);
+      reject(new Error(error.includes('fee covers 0.1 sat/vB')
+        ? 'The selected fee coin is too small for this transaction. Choose a larger coin and build again; it will be spent entirely as the fee.'
+        : error === 'unreachable'
+          ? 'Transaction construction failed. Reload the page and try again; nothing was signed or sent.'
+          : error));
+    } else if (typeof data.result?.raw_tx !== 'string' || !/^[0-9a-f]+$/i.test(data.result.raw_tx)) {
       reject(new Error('Transaction builder returned an invalid transaction'));
     } else resolve(data.result as BuiltTransaction);
   };

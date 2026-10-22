@@ -381,7 +381,7 @@ test('nothing reaches Humid\'s signer without a claim and a fee coin; refusals a
   const fails = (reason, code = -32000) => fakeHumid({ sign: () => { throw Object.assign(new Error(`Humid says ${reason}`), { code, data: { reason } }); } });
   const declined = await run(fails('user_rejected')).catch((x) => x);
   assert.equal(declined.sent, 'no');
-  assert.equal(humidError(declined), 'Humid did not receive approval. Nothing was sent. Reopen the request to try again.');
+  assert.equal(humidError(declined), 'Humid did not receive approval: the request was declined or expired. Nothing was sent. Reopen the request to try again.');
   const invalid = await run(fails('invalid_pset_request', -32002)).catch((x) => x);
   assert.equal(invalid.sent, 'no', 'Humid refuses an invalid request before the user can confirm');
   assert.equal(humidError(invalid), 'Humid: Humid says invalid_pset_request');

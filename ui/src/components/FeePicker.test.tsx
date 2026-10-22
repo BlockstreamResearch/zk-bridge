@@ -18,7 +18,7 @@ const prepared = {
     address: DEPOSIT_ADDRESS, sats: first.sats, changeSats: 546n, feeSats: 500n },
 };
 
-function setup(disabled = false, pending = 0, reservationBusy = false) {
+function setup(disabled = false, pending = 0, reservationBusy = false, kind: 'update' | 'claim' = 'claim') {
   const f = fixture();
   const c = new BridgeController(f.instance, f.env);
   vi.spyOn(c, 'start').mockImplementation(() => {});
@@ -28,7 +28,7 @@ function setup(disabled = false, pending = 0, reservationBusy = false) {
   vi.spyOn(c, 'getFeeReservationStatus').mockReturnValue({ pending, busy: reservationBusy });
   const recover = vi.spyOn(c, 'recoverFeeReservations').mockResolvedValue({ released: pending, spent: 0, retained: 0 });
   const onCoin = vi.fn();
-  render(<BridgeProvider controller={c}><FeePicker kind="claim" disabled={disabled} onCoin={onCoin} /></BridgeProvider>);
+  render(<BridgeProvider controller={c}><FeePicker kind={kind} disabled={disabled} onCoin={onCoin} /></BridgeProvider>);
   return { user: userEvent.setup(), find, prepare, recover, onCoin };
 }
 
@@ -38,6 +38,22 @@ async function openPreparation(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('fee picker', () => {
+  it.each([['claim', '2000'], ['update', '10000']] as const)('requires the %s starting fee before discovery or preparation', async (kind, minimum) => {
+    const { user, find, prepare } = setup(false, 0, false, kind);
+    const button = await openPreparation(user);
+    await user.click(screen.getByRole('checkbox'));
+    const amount = screen.getByLabelText('Fee coin amount (tL-BTC sats)');
+    fireEvent.change(amount, { target: { value: '546' } });
+    expect(button).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Find fee coins' })).toBeDisabled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    fireEvent.change(amount, { target: { value: minimum } });
+    expect(button).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Find fee coins' })).toBeEnabled();
+    expect(screen.getByText(/Check Humid: output 0/)).toHaveTextContent(`${minimum} tL-BTC sats to ${DEPOSIT_ADDRESS}`);
+  });
+
   it('distinguishes the search minimum from the preparation amount and explains wallet visibility', async () => {
     const { user } = setup();
     expect(screen.getByText(/Find lists coins of at least this amount/)).toHaveTextContent('Prepare sends exactly this amount');

@@ -319,7 +319,7 @@ export function humidError(e) {
   const reason = e?.data?.reason;
   // Humid 1.1.3 answers a prompt left open for 30 seconds exactly as it answers a decline (confirmations/index.ts).
   if (reason === 'user_rejected') {
-    return 'Humid did not receive approval. Nothing was sent. Reopen the request to try again.';
+    return 'Humid did not receive approval: the request was declined or expired. Nothing was sent. Reopen the request to try again.';
   }
   const what = (e && e.message) || String(e);
   if (e?.sent === 'no' && e.stage === 'review') {
