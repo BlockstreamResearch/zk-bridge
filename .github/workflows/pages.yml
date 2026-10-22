@@ -58,6 +58,10 @@ jobs:
             }'
       # Reusable CI already ran the code and instance tests. Build the exact files this workflow will upload;
       # Vite also refuses an instance record that disagrees with bridge-core/config.js.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: browser-builders
+          path: target/browser-builders
       - name: Build the React interface
         run: npm ci --prefix ui && npm --prefix ui run build
       # The site is the React build at its root, with the one current instance record at instances/$RECORD/, and

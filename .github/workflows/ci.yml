@@ -3,7 +3,7 @@
 # dependencies, but their checks do not depend on live RPC or Esplora responses.
 #
 # Not run in routine CI:
-#   - The slow deterministic checks, in slow.yml: test_bridge_guest.py --full, test_testnet.py --full and --real
+#   - The remaining slow deterministic checks, in slow.yml: test_bridge_guest.py --full and test_testnet.py --real
 #     (each compiles a folded Groth16 verifier for minutes), and the guest ELF rebuilt in the pinned SP1 Docker
 #     image and compared with the instance's pins (`just prover`, `just check-elf`).
 #   - Network reads: relay.py and fork_proof.py build, testRealSepoliaStateProof (SEPOLIA_FORK_PROOF_RPC), every
@@ -66,6 +66,7 @@ jobs:
         run: forge fmt --check && forge test && FOUNDRY_PROFILE=deploy forge test
 
   javascript:
+    needs: rust-python
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -75,6 +76,14 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: ui/package-lock.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: browser-builders
+          path: target/browser-builders
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: browser-builder-fixtures
+          path: target/browser-builders-tests
       - name: Shared protocol vectors
         run: node vectors/record.mjs --check
       # No dependencies to install: node --test over bridge-core/test.
@@ -87,6 +96,8 @@ jobs:
       # every scenario, and both collapsed and expanded panels without writing screenshot artifacts.
       - name: Responsive layout
         run: npm --prefix ui run build:fixture && npm --prefix ui run check:layout
+      - name: Browser transaction workers
+        run: npm --prefix ui run check:builders
 
   # The claim leaf, the harness, the assembly and wallet tools and their Python suites, which run the built tools.
   rust-python:
@@ -110,6 +121,7 @@ jobs:
             tools/sg16/bridge-guest/target
             tools/sg16/liquid-testnet-wallet/target
             tools/bridge-operator/target
+            target/browser-builders-cargo
           key: rust-python-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('**/Cargo.lock', 'tools/bootstrap-deps.py') }}
       - name: Fetch pinned dependencies
         run: python3 tools/bootstrap-deps.py
@@ -155,6 +167,7 @@ jobs:
           python3 tools/sg16/bridge-guest/testnet/test_testnet.py
           python3 tools/sg16/bridge-guest/testnet/test_deploy_record.py
           python3 tools/sg16/bridge-guest/testnet/test_proof_path.py
+          python3 tools/sg16/bridge-guest/testnet/test_proof_bundle.py
           python3 tools/sg16/bridge-guest/testnet/test_tx_reading.py
       - name: Published covenant and bootstrap
         run: |
@@ -162,6 +175,28 @@ jobs:
             --instance instances/sepolia-liquid-testnet/instance.json \
             --manifest instances/sepolia-liquid-testnet/manifest.json \
             --bootstrap-tx instances/sepolia-liquid-testnet/bootstrap.hex
+
+      - name: Browser builder toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install --locked wasm-pack --version 0.15.0
+      - name: Build and execute the browser transaction modules
+        run: |
+          tools/browser-builders/build.sh
+          python3 tools/sg16/bridge-guest/testnet/test_testnet.py --full
+          node tools/browser-builders/test.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-builders
+          path: target/browser-builders
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-builder-fixtures
+          path: |
+            target/browser-builders-tests/*-input.json
+            target/browser-builders-tests/*-cli.hex
+          if-no-files-found: error
 
   # The prover host's unit tests (store decoding, reconstruction from the tracked inputs fixture). It links sp1-sdk
   # and gnark's native FFI, built with the runner's Go; it neither builds the guest ELF nor proves.
