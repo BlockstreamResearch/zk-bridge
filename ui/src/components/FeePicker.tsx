@@ -153,7 +153,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
       <p className="help">Send {amount || '—'} sats to the address above. This separate transaction costs 500 sats and must confirm first.</p>
       <p className="help">Use Humid on desktop to sign. Fund its Receive → Confidential address with
         {' '}<ExtLink href={LIQUID_FAUCET}>testnet tL-BTC</ExtLink> first.</p>
-      {valid && <p className="help">Check Humid: output 0 pays {amount} tL-BTC sats to {address.trim()}, the fee is 500 sats,
+      {valid && <p className="help approval">Check Humid: output 0 pays {amount} tL-BTC sats to {address.trim()}, the fee is 500 sats,
         and the remaining change returns to Humid. Decline if anything differs.</p>}
       <label className="check"><input type="checkbox" checked={owned} onChange={(e) => setOwned(e.target.checked)} /> I control this address in Humid.</label>
       <div className="actions"><Button disabled={!valid || !owned || held} onClick={() => void prepare()}>Prepare fee coin</Button></div>
