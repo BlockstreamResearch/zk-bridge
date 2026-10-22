@@ -57,7 +57,9 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
           </Step>
           <Step n={3} title="Send the update">
             <p className="help">Load <code className="mono">proof.browser.json</code> in Send update, prepare the fee, then review and sign in Humid. The page builds the transaction. Wait for confirmation.</p>
-            <Button onClick={onUpdate}>Open update</Button>
+            <div className="actions">
+              <Button onClick={onUpdate}>Open update</Button>
+            </div>
             <p className="help">If another claim changes the state first, run <code className="mono">just proof-bundle</code> and reload the file.
               If another update makes the proof stale, check <code className="mono">just status</code> before proving again.</p>
             <details className="aside-form">
@@ -76,13 +78,17 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
             <p className="help">Connect a Sepolia wallet or set a custom RPC in Settings. Claim preparation reads deposit logs since deployment.</p>
             <p className="warn">Update and claim each spend their entire selected fee coin. Check the fee before signing.
               If a broadcast is uncertain, check its transaction before retrying.</p>
-            <Button onClick={onClaim}>Open claim</Button>
+            <div className="actions">
+              <Button onClick={onClaim}>Open claim</Button>
+            </div>
           </Step>
           <Step n={5} title="Redeem on Sepolia">
             <p className="help">In Redeem, enter the ETH recipient and amount, burn through Humid, then track the burn.
               After confirmations, relay any missing headers and redeem. Anyone can submit the proof; the named recipient receives the ETH.</p>
             <p className="warn">Burning is irreversible. Use the exact script shown and review the recipient.</p>
-            <Button onClick={onRedeem}>Open redeem</Button>
+            <div className="actions">
+              <Button onClick={onRedeem}>Open redeem</Button>
+            </div>
           </Step>
         </ol>
       )}
