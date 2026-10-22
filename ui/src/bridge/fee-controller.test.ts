@@ -209,14 +209,15 @@ it('preserves an uncertain hold if saving the successful preparation result fail
   expect(c.getFeeReservationStatus().pending).toBe(1);
 });
 
-it('protects a reported fee output when its transaction readback remains unavailable', async () => {
+it('preserves the indexing-lag message and protects the reported fee output after reload', async () => {
   const f = fixture('connected');
   const c = new BridgeController(f.instance, f.env);
+  const message = `Humid reports sending ${preparedTxid}; the Liquid API has not shown it yet.`;
   vi.mocked(prepareFeeWithHumid).mockImplementationOnce(async ({ onSign }) => {
     await onSign?.([point]);
-    throw Object.assign(new Error('Readback unavailable'), { sent: 'maybe', txid: preparedTxid });
+    throw Object.assign(new Error(message), { sent: 'maybe', txid: preparedTxid, stage: 'lookup', visibility: 'not-indexed' });
   });
-  await expect(c.prepareFee(DEPOSIT_ADDRESS, 2000n, () => {})).rejects.toThrow('Readback unavailable');
+  await expect(c.prepareFee(DEPOSIT_ADDRESS, 2000n, () => {})).rejects.toMatchObject({ message, sent: 'maybe', txid: preparedTxid });
   expect(saved(f)).toEqual({ pending: [point], prepared: [preparedPoint] });
   const reloaded = new BridgeController(f.instance, f.env);
   vi.mocked(prepareFeeWithHumid).mockImplementationOnce(async ({ skip }) => {
@@ -224,6 +225,28 @@ it('protects a reported fee output when its transaction readback remains unavail
     throw new Error('No source');
   });
   await expect(reloaded.prepareFee(DEPOSIT_ADDRESS, 2000n, () => {})).rejects.toThrow('No source');
+});
+
+it('uses the controller wait implementation for bounded fee transaction lookups', async () => {
+  const f = fixture('connected');
+  f.env.liquidLagMs = 12;
+  f.env.sleep = vi.fn().mockResolvedValue(undefined);
+  const c = new BridgeController(f.instance, f.env);
+  vi.mocked(prepareFeeWithHumid).mockImplementationOnce(async ({ onSign, onBroadcast, lookupTries, lookupWaitMs, wait }) => {
+    expect(lookupTries).toBe(10);
+    expect(lookupWaitMs).toBe(12);
+    await onSign?.([point]);
+    await onBroadcast?.(preparedTxid);
+    expect(saved(f)).toEqual({ pending: [point], prepared: [preparedPoint] });
+    const reloaded = new BridgeController(f.instance, f.env);
+    expect(reloaded.getFeeReservationStatus().pending).toBe(1);
+    await wait?.(lookupWaitMs!);
+    expect(c.getFeeReservationStatus()).toEqual({ pending: 1, busy: true });
+    return result;
+  });
+  await c.prepareFee(DEPOSIT_ADDRESS, 2000n, () => {});
+  expect(f.env.sleep).toHaveBeenCalledWith(12);
+  expect(saved(f)).toEqual({ pending: [], prepared: [preparedPoint] });
 });
 
 it('drops a prepared output record once its intended covenant spend is confirmed', async () => {

@@ -33,6 +33,7 @@ export interface FeeFailure extends HumidFailure {
   plan?: FeePlan;
   spends?: string[];
   txid?: string;
+  visibility?: 'not-indexed' | 'unavailable';
 }
 
 export function discoverFeeCoins(args: {
@@ -57,6 +58,12 @@ export function prepareFeeWithHumid(args: {
   sats: bigint;
   skip?: Set<string>;
   onSign?: (outpoints: string[]) => void | Promise<void>;
+  /** Persist the reported txid and protect output 0 before waiting for the API. */
+  onBroadcast?: (txid: string) => void | Promise<void>;
   progress?: (text: string) => void;
   deadlineMs?: number;
+  /** At most 10 reads, with at most 3,000 ms between reads. Only 404 is retried. */
+  lookupTries?: number;
+  lookupWaitMs?: number;
+  wait?: (ms: number) => Promise<void>;
 }): Promise<{ txid: string; vout: number; sats: bigint; txHex: string; address: string; confirmed: false; plan: FeePlan }>;

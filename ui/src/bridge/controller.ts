@@ -994,6 +994,12 @@ export class BridgeController {
       const humid = await findHumid(this.env.humidWindow());
       if (!humid) throw new Error(NO_HUMID);
       const result = await prepareFeeWithHumid({ humid, esplora: this.esplora, address, sats, skip: this.feeSourceSkip(), progress,
+        lookupTries: LIQUID_LOOKUPS, lookupWaitMs: this.env.liquidLagMs ?? LIQUID_LAG_MS, wait: (ms) => this.env.sleep(ms),
+        onBroadcast: (txid) => {
+          const prepared = new Set([...this.preparedFeeOutputs, `${txid}:0`]);
+          this.preparedFeeOutputs = prepared;
+          this.saveFeeRecords(this.feePreparations, prepared);
+        },
         onSign: (outpoints: string[]) => {
           if (!outpoints.length || !outpoints.every(validPoint)) throw new Error('Invalid wallet coin.');
           this.checkFreeCoins(outpoints, this.feeSourceSkip());

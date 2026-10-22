@@ -18,6 +18,9 @@ const MAX_COINS = 256;
 const MAX_ADDRESS_COINS = 10_000;
 const MAX_CHECKS = 32;
 const MAX_TX_HEX = 8_000_000;
+const LOOKUP_TRIES = 10;
+const LOOKUP_WAIT_MS = 3_000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const MAX_FEE_SATS = 50_000n;
 
 // These reservations survive retries through this module, including a replacement
@@ -188,15 +191,42 @@ export function feeBroadcastMatches(plan, txHex, txid) {
   return null;
 }
 
-/** One wallet-approved transfer. No retry or confirmation polling. Caller must
- * show the destination and confirm the user controls it. onSign runs before the
- * request and must persist its spent outpoints across reloads. A possibly sent
- * request reserves its input; only an explicit pre-sign refusal releases it.
+/** A reported send may take a few seconds to reach the public Liquid API. Only
+ * a missing transaction is retried; unavailable data and mismatches stay distinct.
  */
-export async function prepareFeeWithHumid({ humid, esplora, address, sats, skip = new Set(), onSign = () => {}, progress = () => {}, deadlineMs = SIGN_DEADLINE_MS }) {
+async function sentTransaction(esplora, txid, tries, waitMs, wait) {
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try { return await esplora.txHex(txid); }
+    catch (error) {
+      if (error?.status !== 404) {
+        throw Object.assign(new Error(`Humid reports sending ${txid}; the Liquid API is unavailable, so the transaction could not be checked.`),
+          { stage: 'lookup', visibility: 'unavailable' });
+      }
+      if (attempt === tries) {
+        throw Object.assign(new Error(`Humid reports sending ${txid}; the Liquid API has not shown it yet.`),
+          { stage: 'lookup', visibility: 'not-indexed' });
+      }
+    }
+    await wait(waitMs);
+  }
+}
+
+/** One wallet-approved transfer, with bounded reads while the API catches up.
+ * Signing and broadcasting are never repeated. No confirmation polling. Caller must
+ * show the destination and confirm the user controls it. onSign runs before the
+ * request and must persist its spent outpoints across reloads. onBroadcast gets
+ * the reported txid before lookup waits, so its output 0 can also be protected.
+ * A possibly sent request reserves its input; only an explicit pre-sign refusal releases it.
+ */
+export async function prepareFeeWithHumid({ humid, esplora, address, sats, skip = new Set(), onSign = () => {}, onBroadcast = () => {}, progress = () => {},
+  deadlineMs = SIGN_DEADLINE_MS, lookupTries = LOOKUP_TRIES, lookupWaitMs = LOOKUP_WAIT_MS, wait = sleep }) {
   const target = destination(address);
   amount(sats, 'Prepared fee', MIN_CHANGE_SATS, MAX_FEE_SATS);
   if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > SIGN_DEADLINE_MS) throw new Error('Invalid wallet request deadline.');
+  if (!Number.isSafeInteger(lookupTries) || lookupTries < 1 || lookupTries > LOOKUP_TRIES
+    || !Number.isSafeInteger(lookupWaitMs) || lookupWaitMs < 0 || lookupWaitMs > LOOKUP_WAIT_MS || typeof wait !== 'function') {
+    throw new Error('Invalid transaction lookup limits.');
+  }
   if (active.has(humid)) throw new Error('A fee preparation is already open in Humid.');
   active.add(humid);
   let plan;
@@ -237,8 +267,13 @@ export async function prepareFeeWithHumid({ humid, esplora, address, sats, skip 
     await onSign(plan.spends);
     signing = true;
     txid = await signAndBroadcast(humid, plan, deadlineMs);
-    const txHex = await esplora.txHex(txid);
-    feeBroadcastMatches(plan, txHex, txid);
+    await onBroadcast(txid);
+    progress(`Humid reports sending ${txid}. Waiting for the Liquid API…`);
+    const txHex = await sentTransaction(esplora, txid, lookupTries, lookupWaitMs, wait);
+    try { feeBroadcastMatches(plan, txHex, txid); }
+    catch (error) {
+      throw Object.assign(new Error(`Humid reports sending ${txid}, but the transaction could not be verified: ${error.message}`), { stage: 'verification' });
+    }
     return { txid, vout: 0, sats, txHex, address: target.address, confirmed: false, plan };
   } catch (error) {
     const failure = error instanceof Error ? error : new Error('Fee preparation failed.');

@@ -255,3 +255,112 @@ test('explicitly reviewed holds can be released without sending or clearing othe
   await assert.rejects(other.run(), /needs a confirmed/);
   assert.throws(() => releaseFeePreparationInputs(['malformed']), /Invalid/);
 });
+
+test('a temporarily missing broadcast is looked up again without asking Humid to send again', async () => {
+  const f = fixture('indexing lag', { confidential: true });
+  const read = f.api.txHex;
+  let lookups = 0;
+  const waits = [];
+  f.api.txHex = async (txid) => {
+    if (txid !== f.funding.tx.txid && ++lookups <= 2) throw Object.assign(new Error('HTTP 404'), { status: 404 });
+    return read(txid);
+  };
+  const progress = [];
+  const reports = [];
+  const result = await f.run({ progress: (text) => progress.push(text), onBroadcast: async (txid) => {
+    reports.push(txid);
+    assert.equal(lookups, 0, 'report the output before the first API lookup');
+  }, wait: async (ms) => {
+    waits.push(ms);
+    assert.equal(reports.length, 1, 'the caller can persist output 0 before any wait');
+    assert.throws(() => releaseFeePreparationInputs([`${f.funding.tx.txid}:0`]), /still open/);
+  } });
+  assert.equal(lookups, 3);
+  assert.deepEqual(waits, [3000, 3000]);
+  assert.equal(f.calls.filter((call) => call.method === 'signPset').length, 1);
+  assert.equal(feeBroadcastMatches(result.plan, result.txHex, result.txid), null);
+  assert.ok(progress.at(-1).includes(`Humid reports sending ${result.txid}`));
+  assert.deepEqual(reports, [result.txid]);
+});
+
+test('exhausted indexing retries retain the txid and source hold with an uncertainty message', async () => {
+  const txid = word('not indexed');
+  const f = fixture('exhausted lookup', { sign: () => ({ txid }) });
+  const read = f.api.txHex;
+  let lookups = 0;
+  const waits = [];
+  f.api.txHex = async (id) => {
+    if (id === f.funding.tx.txid) return read(id);
+    lookups++;
+    throw Object.assign(new Error('Liquid API /tx/private/hex: HTTP 404'), { status: 404 });
+  };
+  const error = await f.run({ wait: async (ms) => { waits.push(ms); } }).catch((e) => e);
+  assert.equal(lookups, 10);
+  assert.equal(waits.length, 9);
+  assert.ok(waits.every((ms) => ms === 3000));
+  assert.equal(error.message, `Humid reports sending ${txid}; the Liquid API has not shown it yet.`);
+  assert.equal(error.sent, 'maybe');
+  assert.equal(error.txid, txid);
+  assert.equal(error.stage, 'lookup');
+  assert.equal(error.visibility, 'not-indexed');
+  assert.deepEqual(error.spends, [`${f.funding.tx.txid}:0`]);
+  assert.equal(f.calls.filter((call) => call.method === 'signPset').length, 1);
+  await assert.rejects(f.run(), /needs a confirmed/);
+});
+
+test('API failures and transaction verification failures are distinct and are not retried', async () => {
+  for (const status of [undefined, 503]) {
+    const f = fixture(`API failure ${status}`);
+    const read = f.api.txHex;
+    let lookups = 0;
+    f.api.txHex = async (txid) => {
+      if (txid === f.funding.tx.txid) return read(txid);
+      lookups++;
+      throw Object.assign(new Error('private endpoint detail'), { status });
+    };
+    const error = await f.run({ wait: async () => assert.fail('must not retry an unavailable API') }).catch((e) => e);
+    assert.equal(lookups, 1);
+    assert.equal(error.sent, 'maybe');
+    assert.equal(error.visibility, 'unavailable');
+    assert.match(error.message, /Liquid API is unavailable/);
+    assert.doesNotMatch(error.message, /private endpoint|not shown it yet/);
+  }
+  const f = fixture('invalid returned transaction');
+  const read = f.api.txHex;
+  let lookups = 0;
+  f.api.txHex = async (txid) => {
+    if (txid === f.funding.tx.txid) return read(txid);
+    lookups++;
+    return f.funding.tx.hex;
+  };
+  const error = await f.run({ wait: async () => assert.fail('must not retry a mismatching transaction') }).catch((e) => e);
+  assert.equal(lookups, 1);
+  assert.equal(error.sent, 'maybe');
+  assert.equal(error.stage, 'verification');
+  assert.equal(error.visibility, undefined);
+  assert.match(error.message, /transaction could not be verified: Liquid returned a different transaction/);
+  assert.equal(f.calls.filter((call) => call.method === 'signPset').length, 1);
+});
+
+test('lookup limits are bounded before signing and do not retry missing source transactions', async () => {
+  const f = fixture('lookup policy');
+  for (const options of [{ lookupTries: 0 }, { lookupTries: 11 }, { lookupWaitMs: -1 }, { lookupWaitMs: 3001 }, { wait: null }]) {
+    await assert.rejects(f.run(options), /lookup limits/);
+  }
+  assert.equal(f.calls.length, 0);
+  let reads = 0;
+  f.api.txHex = async () => { reads++; throw Object.assign(new Error('Source missing'), { status: 404 }); };
+  await assert.rejects(f.run({ wait: async () => assert.fail('source lookup must not retry') }), /Source missing/);
+  assert.equal(reads, 1);
+  assert.ok(!f.calls.some((call) => call.method === 'signPset'));
+});
+
+test('failure to save a reported broadcast preserves uncertainty and never repeats signing', async () => {
+  const f = fixture('reported broadcast storage failure');
+  const error = await f.run({ onBroadcast: async () => { throw new Error('Storage stopped'); } }).catch((e) => e);
+  assert.equal(error.sent, 'maybe');
+  assert.match(error.txid, /^[0-9a-f]{64}$/);
+  assert.match(error.message, /Storage stopped/);
+  assert.equal(f.calls.filter((call) => call.method === 'signPset').length, 1);
+  await assert.rejects(f.run(), /needs a confirmed/);
+});
