@@ -4,7 +4,7 @@ import { encodeSegwit } from '../lib/bech32.js';
 import { bytesToHex, concat, hexToBytes } from '../lib/bytes.js';
 import { displayHex, parseTransaction } from '../lib/elements.js';
 import { HUMID_SCOPE } from '../lib/humid.js';
-import { discoverFeeCoins, feeBroadcastMatches, prepareFeeWithHumid } from '../lib/fee.js';
+import { discoverFeeCoins, feeBroadcastMatches, prepareFeeWithHumid, releaseFeePreparationInputs } from '../lib/fee.js';
 import { LBTC, blinded, explicit, hex, signedWitness, transaction, word } from './liquid-tx.js';
 import { ELEMENTS, psetTransaction, readPset } from './pset-reader.js';
 
@@ -89,7 +89,7 @@ test('discovery verifies raw explicit outputs and statuses, preserves amount and
 test('discovery rejects wrong chain/address/txid, false output amounts, invalid outpoints and statuses', async () => {
   const f = fixture('discovery adversarial');
   const run = (options = {}) => discoverFeeCoins({ esplora: f.api, address: ADDRESS, ...options });
-  await assert.rejects(run({ address: encodeSegwit('ert', 0, SCRIPT.subarray(2)) }), /prefix/);
+  await assert.rejects(run({ address: encodeSegwit('ert', 0, SCRIPT.subarray(2)) }), /valid Humid unconfidential testnet address/);
   await assert.rejects(run({ address: TLQ }), /[Uu]nconfidential/);
   await assert.rejects(run({ address: DEST }), /differs/);
   await assert.rejects(run({ maxSats: 50_001n }), /Maximum fee/);
@@ -110,7 +110,23 @@ test('discovery rejects wrong chain/address/txid, false output amounts, invalid 
   f.api.addressUtxos = async () => [listed, listed];
   await assert.rejects(run(), /duplicate/);
   f.api.addressUtxos = async () => Array(257).fill(listed);
-  await assert.rejects(run(), /at most 256/);
+  await assert.rejects(run(), /duplicate/);
+  f.api.addressUtxos = async () => Array(10_001).fill(listed);
+  await assert.rejects(run(), /at most 10000/);
+});
+
+test('discovery remains bounded with more than 32 matching outputs and ordinary address dust', async () => {
+  const f = fixture('dust address');
+  const sources = Array.from({ length: 300 }, (_, index) => source(`dust ${index}`, false, index < 260 ? 1n : 600n + BigInt(index)));
+  f.api.addressUtxos = async () => sources.map(({ tx, sats }) => ({ txid: tx.txid, vout: 0,
+    value: Number(sats), asset: displayHex(LBTC), status: { confirmed: true } }));
+  let reads = 0;
+  f.api.txHex = async (txid) => { reads++; return sources.find(({ tx }) => tx.txid === txid).tx.hex; };
+  const found = await discoverFeeCoins({ esplora: f.api, address: ADDRESS });
+  assert.equal(found.length, 32);
+  assert.equal(reads, 32);
+  assert.equal(found[0].sats, 860n);
+  assert.equal(found[31].sats, 891n);
 });
 
 test('an explicit source prepares the chosen exact fee, change and miner fee in the browser', async () => {
@@ -216,6 +232,7 @@ test('concurrent requests and a spend discovered immediately before signing are 
   const first = f.run({ onSign: () => new Promise((resolve) => { release = resolve; }) });
   while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
   await assert.rejects(f.run(), /already open/);
+  assert.throws(() => releaseFeePreparationInputs([`${f.funding.tx.txid}:0`]), /still open/);
   release();
   await first;
   const raced = fixture('spent before sign');
@@ -223,4 +240,18 @@ test('concurrent requests and a spend discovered immediately before signing are 
   raced.api.outspend = async () => ({ spent: ++calls > 1 });
   await assert.rejects(raced.run(), /no longer available/);
   assert.ok(!raced.calls.some((request) => request.method === 'signPset'));
+});
+
+test('explicitly reviewed holds can be released without sending or clearing other held inputs', async () => {
+  const f = fixture('reviewed hold', { sign: () => { throw new Error('reply lost'); } });
+  const other = fixture('other hold', { sign: () => { throw new Error('reply lost'); } });
+  await assert.rejects(f.run(), /reply lost/);
+  await assert.rejects(other.run(), /reply lost/);
+  await assert.rejects(f.run(), /needs a confirmed/);
+  const calls = f.calls.length;
+  releaseFeePreparationInputs([`${f.funding.tx.txid}:0`]);
+  assert.equal(f.calls.length, calls, 'release itself never calls the wallet');
+  await assert.rejects(f.run(), /reply lost/, 'a new explicit request can now reach the wallet');
+  await assert.rejects(other.run(), /needs a confirmed/);
+  assert.throws(() => releaseFeePreparationInputs(['malformed']), /Invalid/);
 });

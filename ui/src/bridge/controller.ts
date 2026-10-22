@@ -11,7 +11,7 @@ import { type ClaimPlan, claimError, claimOnLiquid, depositClaims, prepareClaim,
 import { displayHex, parseHeader, parseTransaction, txidFromDisplay } from '@bridge/core/lib/elements.js';
 import { Esplora, type TxStatus } from '@bridge/core/lib/esplora.js';
 import { EthRpc, checkChain } from '@bridge/core/lib/ethrpc.js';
-import { discoverFeeCoins, prepareFeeWithHumid } from '@bridge/core/lib/fee.js';
+import { discoverFeeCoins, prepareFeeWithHumid, releaseFeePreparationInputs } from '@bridge/core/lib/fee.js';
 import { keccak256 } from '@bridge/core/lib/hash.js';
 import { type BurnPlan, type HumidFailure, broadcastMatches, burnWithHumid, findHumid, humidError } from '@bridge/core/lib/humid.js';
 import { checkBootstrap } from '@bridge/core/lib/issuance.js';
@@ -36,6 +36,10 @@ const INSTANCE_RETRY_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
 const NO_HUMID = 'Humid was not found in this browser. Install the Humid extension, unlock it, reload this page and try again.';
 // A standard Liquid transaction is under 400,000 weight units, so its hex under 800,000 characters.
 const MAX_FILE = 1_000_000;
+const FEE_RECORDS = 'zk-bridge:reserved-fees';
+const TESTNET_GENESIS = 'a771da8e52ee6ad581ed1e9a99825e5b3b7992225534eaa2ae23244fe26ab1c1';
+const validPoint = (point: unknown): point is string => typeof point === 'string'
+  && /^[0-9a-f]{64}:(0|[1-9][0-9]{0,9})$/.test(point) && Number(point.slice(65)) <= 0x3fffffff;
 
 const idleSend = <P>(): LiquidSend<P> => ({ busy: false, note: '', plan: null, sent: null, fileError: '', storeError: '', error: '' });
 
@@ -75,8 +79,12 @@ export class BridgeController {
   private messages = 0;
   private readonly builds = new Map<SendKind, AbortController>();
   private readonly sendRuns = new Map<SendKind, number>();
-  /** Coins ("txid:vout") a Humid send may have spent. Fee-preparation reservations also survive reloads. */
+  /** Coins ("txid:vout") a burn, update or claim may have spent in this session. */
   private readonly spent = new Set<string>();
+  /** Preparation holds and their resulting fee outputs survive reloads separately. */
+  private feePreparations = new Set<string>();
+  private preparedFeeOutputs = new Set<string>();
+  private feeBusy = false;
   /** The last live state followed on Liquid through the Liquid API in Settings; the next walk resumes from it. */
   private live: LiveState | null = null;
   /** This poll's walk of the state on Liquid, which every deposit's check shares (claimsOnLiquid). */
@@ -100,9 +108,12 @@ export class BridgeController {
       journeys: loadJourneys(env.storage, instance?.escrow), toast: null, announcement: null, now: env.now(),
     };
     try {
-      const points: unknown = JSON.parse(env.storage.getItem('zk-bridge:reserved-fees') || '[]');
-      if (Array.isArray(points)) for (const point of points.slice(0, 256)) {
-        if (typeof point === 'string' && /^[0-9a-f]{64}:[0-9]+$/.test(point)) this.spent.add(point);
+      const saved = JSON.parse(env.storage.getItem(FEE_RECORDS) || '{}');
+      for (const [name, target] of [['pending', this.feePreparations], ['prepared', this.preparedFeeOutputs]] as const) {
+        const points: unknown = saved?.[name];
+        if (Array.isArray(points) && points.length <= 256 && points.every(validPoint)) {
+          for (const point of points) target.add(point);
+        }
       }
     } catch { /* Invalid saved reservations cannot authorize a spend. Live coin checks still apply. */ }
     this.prefillHumid();
@@ -789,8 +800,9 @@ export class BridgeController {
       const humid = await findHumid(this.env.humidWindow());
       if (!humid) throw new Error(NO_HUMID);
       const { txid, plan } = await burnWithHumid({
-        humid, esplora: this.esplora, asset: hexToBytes(t.asset), units: t.units, burnScript: t.burn.scriptPubKey, claim, skip: this.spent,
+        humid, esplora: this.esplora, asset: hexToBytes(t.asset), units: t.units, burnScript: t.burn.scriptPubKey, claim, skip: this.feeSourceSkip(),
         onSign: (outpoints) => {
+          this.checkFreeCoins(outpoints, this.feeSourceSkip());
           asked = outpoints;
           for (const o of outpoints) this.spent.add(o);
         },
@@ -874,27 +886,145 @@ export class BridgeController {
   } as const;
 
   async findFeeCoins(address: string, minSats: bigint) {
-    return discoverFeeCoins({ esplora: this.esplora, address, minSats, maxSats: 50_000n, skip: this.spent });
+    return discoverFeeCoins({ esplora: this.esplora, address, minSats, maxSats: 50_000n,
+      skip: new Set([...this.spent, ...this.feePreparations]) });
+  }
+
+  getFeeReservationStatus() {
+    return { pending: this.feePreparations.size, busy: this.feeBusy };
+  }
+
+  private feeSourceSkip() {
+    return new Set([...this.spent, ...this.feePreparations, ...this.preparedFeeOutputs]);
+  }
+
+  private checkFreeCoins(points: string[], held: Set<string>) {
+    if (points.some((point) => held.has(point))) throw new Error('This coin is reserved for another transaction.');
+  }
+
+  private saveFeeRecords(pending: Set<string>, prepared = this.preparedFeeOutputs) {
+    if (pending.size > 256 || prepared.size > 256) throw new Error('Too many saved fee reservations.');
+    // Save first. If storage fails, preserve all previous holds.
+    this.env.storage.setItem(FEE_RECORDS, JSON.stringify({ pending: [...pending], prepared: [...prepared] }));
+    this.feePreparations = pending;
+    this.preparedFeeOutputs = prepared;
+    this.set({});
+  }
+
+  /** Only needed when saved outputs reach the bound, including sends made from
+   * another page. An actual confirmed spending transaction proves removal safe.
+   */
+  private async prunePreparedFees() {
+    const esplora = this.esplora;
+    if (await esplora.text('/block-height/0') !== TESTNET_GENESIS) throw new Error('Connect to Liquid testnet.');
+    const prepared = new Set(this.preparedFeeOutputs);
+    for (const point of this.preparedFeeOutputs) {
+      const [txid, index] = point.split(':');
+      try {
+        const spend = await esplora.json<{ spent?: boolean; txid?: string }>(`/tx/${txid}/outspend/${index}`);
+        if (spend.spent !== true || !spend.txid || !/^[0-9a-f]{64}$/.test(spend.txid)) continue;
+        const [raw, status] = await Promise.all([esplora.txHex(spend.txid), esplora.txStatus(spend.txid)]);
+        if (raw.length > 8_000_000 || status.confirmed !== true) continue;
+        const tx = parseTransaction(hexToBytes(raw));
+        if (displayHex(tx.txid) === spend.txid && tx.inputs.some((input) => `${displayHex(input.prevTxid)}:${input.n}` === point)) {
+          prepared.delete(point);
+        }
+      } catch { /* Keep outputs whose confirmed spend cannot be verified. */ }
+    }
+    if (esplora !== this.esplora) throw new Error('Liquid settings changed. Check the fee outputs again.');
+    for (const point of this.preparedFeeOutputs) if (!prepared.has(point)) this.spent.add(point);
+    this.saveFeeRecords(this.feePreparations, prepared);
+  }
+
+  /** User-invoked recovery only. Unspent does not prove a delayed broadcast was
+   * abandoned, so confirmation explains that competing transactions can result.
+   */
+  async recoverFeeReservations() {
+    if (this.feeBusy) throw new Error('Wait for the current fee request to finish.');
+    const result = { released: 0, spent: 0, retained: this.feePreparations.size };
+    if (!result.retained) return result;
+    if (!this.env.confirm('Check Humid activity and close any open signing prompt first. An earlier transfer may still confirm. Releasing its hold lets you prepare another transfer that may compete with it. Check and release fee preparation holds?')) return null;
+    this.feeBusy = true;
+    this.set({});
+    const esplora = this.esplora;
+    const release: string[] = [];
+    const consumed: string[] = [];
+    try {
+      if (await esplora.text('/block-height/0') !== TESTNET_GENESIS) throw new Error('Connect to Liquid testnet.');
+      for (const point of this.feePreparations) {
+        const [txid, index] = point.split(':');
+        try {
+          const [raw, status, spend] = await Promise.all([
+            esplora.txHex(txid), esplora.txStatus(txid),
+            esplora.json<{ spent?: boolean }>(`/tx/${txid}/outspend/${index}`),
+          ]);
+          if (raw.length > 8_000_000) continue;
+          const tx = parseTransaction(hexToBytes(raw));
+          if (displayHex(tx.txid) !== txid || !tx.outputs[Number(index)] || status.confirmed !== true) continue;
+          if (spend.spent === false) release.push(point);
+          else if (spend.spent === true) consumed.push(point);
+        } catch { /* An unavailable or inconsistent answer keeps the hold. */ }
+      }
+      if (esplora !== this.esplora) throw new Error('Liquid settings changed. Check the reservations again.');
+      const cleared = [...release, ...consumed];
+      // No network calls or wallet requests after this point. Module release can
+      // refuse an active request before any persisted hold is changed.
+      releaseFeePreparationInputs(cleared);
+      this.saveFeeRecords(new Set([...this.feePreparations].filter((point) => !cleared.includes(point))));
+      for (const point of consumed) this.spent.add(point);
+      return { released: release.length, spent: consumed.length, retained: this.feePreparations.size };
+    } finally {
+      this.feeBusy = false;
+      this.set({});
+    }
   }
 
   async prepareFee(address: string, sats: bigint, progress: (text: string) => void) {
-    const humid = await findHumid(this.env.humidWindow());
-    if (!humid) throw new Error(NO_HUMID);
+    if (this.feeBusy) throw new Error('Wait for the current fee request to finish.');
+    this.feeBusy = true;
+    this.set({});
     let reserved: string[] = [];
+    let sentTxid: string | undefined;
     try {
-      return await prepareFeeWithHumid({ humid, esplora: this.esplora, address, sats, skip: this.spent, progress,
+      if (this.preparedFeeOutputs.size >= 256) {
+        progress('Checking previously prepared fees…');
+        await this.prunePreparedFees();
+        if (this.preparedFeeOutputs.size >= 256) throw new Error('Use an existing prepared fee before creating another.');
+      }
+      const humid = await findHumid(this.env.humidWindow());
+      if (!humid) throw new Error(NO_HUMID);
+      const result = await prepareFeeWithHumid({ humid, esplora: this.esplora, address, sats, skip: this.feeSourceSkip(), progress,
         onSign: (outpoints: string[]) => {
+          if (!outpoints.length || !outpoints.every(validPoint)) throw new Error('Invalid wallet coin.');
+          this.checkFreeCoins(outpoints, this.feeSourceSkip());
+          this.saveFeeRecords(new Set([...this.feePreparations, ...outpoints]));
           reserved = outpoints;
-          for (const point of outpoints) this.spent.add(point);
-          // Persist before asking the signer. A storage failure stops the spend.
-          this.env.storage.setItem('zk-bridge:reserved-fees', JSON.stringify([...this.spent].slice(-256)));
         } });
+      sentTxid = result.txid;
+      for (const point of reserved) this.spent.add(point);
+      const prepared = new Set([...this.preparedFeeOutputs, `${result.txid}:${result.vout}`]);
+      // Keep the result protected in this session even if this save fails.
+      this.preparedFeeOutputs = prepared;
+      this.saveFeeRecords(new Set([...this.feePreparations].filter((point) => !reserved.includes(point))), prepared);
+      return result;
     } catch (error) {
-      if ((error as { sent?: string })?.sent === 'no') {
-        for (const point of reserved) this.spent.delete(point);
-        this.env.storage.setItem('zk-bridge:reserved-fees', JSON.stringify([...this.spent].slice(-256)));
+      if (sentTxid) throw Object.assign(error instanceof Error ? error : new Error(message(error)), { sent: 'maybe', txid: sentTxid });
+      const failure = error as { sent?: string; txid?: string };
+      if (failure?.sent === 'maybe' && typeof failure.txid === 'string' && /^[0-9a-f]{64}$/.test(failure.txid)) {
+        const prepared = new Set([...this.preparedFeeOutputs, `${failure.txid}:0`]);
+        this.preparedFeeOutputs = prepared;
+        try { this.saveFeeRecords(this.feePreparations, prepared); }
+        catch (saveError) {
+          throw Object.assign(new Error(`${message(error)}. Could not save its fee output: ${message(saveError)}`), { sent: 'maybe', txid: failure.txid });
+        }
+      }
+      if (failure?.sent === 'no') {
+        this.saveFeeRecords(new Set([...this.feePreparations].filter((point) => !reserved.includes(point))));
       }
       throw error;
+    } finally {
+      this.feeBusy = false;
+      this.set({});
     }
   }
 
@@ -927,7 +1057,7 @@ export class BridgeController {
       const site = this.env.siteHref();
       const readRecord = siteReader(this.env.fetch, site, instance.record);
       const args = { instance, esplora, readRecord, readEth: this.read.bind(this), feeTxid: values.feeTxid,
-        feeVout: values.feeVout, from: this.live, progress: note };
+        feeVout: values.feeVout, from: this.live, progress: note, signal: abort.signal };
       let input: Record<string, unknown>;
       let store: unknown;
       if (kind === 'liquidUpdate') {
@@ -951,7 +1081,7 @@ export class BridgeController {
         esplora, readRecord, raw: hexToBytes(result.raw_tx), bootstrap: instance.bootstrap,
         published: publishes(site), progress: this.following(note),
       });
-      if (store) plan = withStore(plan as UpdatePlan, JSON.stringify(store), 'proof.browser.json');
+      if (store && (plan as UpdatePlan).store?.where !== 'site') plan = withStore(plan as UpdatePlan, JSON.stringify(store), 'proof.browser.json');
       if (!current()) return;
       if (kind === 'liquidUpdate') this.live = (plan as UpdatePlan).live;
       this.patchSend(kind, { plan, storeText: store ? JSON.stringify(store, null, 2) : undefined });
@@ -1081,6 +1211,12 @@ export class BridgeController {
       }
       note('Looking for Humid…');
       let said: string | null = null;
+      const fee = kind === 'liquidUpdate' ? (plan as UpdatePlan).update.fee : (plan as ClaimPlan).claim.fee;
+      const point = `${fee.txid}:${fee.vout}`;
+      this.checkFreeCoins([point], new Set([...this.spent, ...this.feePreparations]));
+      // Synchronous reservation prevents the other panel or a burn from using
+      // this fee while findHumid and the core's live checks are awaiting replies.
+      this.spent.add(point);
       try {
         const humid = await findHumid(this.env.humidWindow());
         if (!humid) throw new Error(NO_HUMID);
@@ -1088,7 +1224,10 @@ export class BridgeController {
         await (k.send as (a: object) => Promise<string>)({ humid, esplora: this.esplora, plan, progress: note });
       } catch (e) {
         // Humid may have broadcast it, or another transaction: only the Liquid API can tell.
-        if ((e as HumidFailure | null)?.sent !== 'maybe') throw e;
+        if ((e as HumidFailure | null)?.sent !== 'maybe') {
+          this.spent.delete(point);
+          throw e;
+        }
         said = k.explain(e);
       }
       note(said ? `Humid may have sent the ${k.what}. Asking the Liquid API…` : `Humid reports sending the ${k.what}. Waiting for the Liquid API to show it…`);
@@ -1110,6 +1249,13 @@ export class BridgeController {
     // A file loaded meanwhile replaced the plan: this answer is about one no longer shown.
     if (this.state[kind].plan !== plan) return;
     this.patchSend(kind, { sent: { ...seen, txid: plan.txid, said, checkedAt: this.env.now() } });
+    if (seen.where === 'confirmed') {
+      const fee = kind === 'liquidUpdate' ? (plan as UpdatePlan).update.fee : (plan as ClaimPlan).claim.fee;
+      const point = `${fee.txid}:${fee.vout}`;
+      if (this.preparedFeeOutputs.has(point)) {
+        this.saveFeeRecords(this.feePreparations, new Set([...this.preparedFeeOutputs].filter((held) => held !== point)));
+      }
+    }
     if (seen.where !== 'unknown') {
       this.toast(seen.where === 'confirmed' ? `The ${this.sends[kind].what} is confirmed on Liquid.` : `The Liquid API has the ${this.sends[kind].what}.`);
     }

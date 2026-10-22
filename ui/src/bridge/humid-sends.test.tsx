@@ -486,19 +486,19 @@ describe('a burn sent with Humid', () => {
     expect(s().error).toMatch(/serves another transaction for its txid/);
   });
 
-  it('keeps coins Humid may have spent out of the next burn, and frees them when nothing was sent', async () => {
+  it('keeps uncertain coins held while releasing only the newly declined burn inputs', async () => {
     const { c, s } = await ready();
     const skipped: string[][] = [];
     vi.mocked(burnWithHumid).mockImplementation(async ({ onSign, skip }) => {
       skipped.push([...(skip ?? [])]);
-      onSign?.(['c1:1']);
+      onSign?.([skipped.length === 1 ? 'c1:1' : 'c2:1']);
       throw Object.assign(new Error('no answer'), { sent: skipped.length === 1 ? 'maybe' : 'no' });
     });
     await c.sendWithHumid();
     expect(s().error).toMatch(/It may have been sent all the same[\s\S]*Explorer: .*\/address\//);
     await c.sendWithHumid();
     await c.sendWithHumid();
-    expect(skipped).toEqual([[], ['c1:1'], []]);
+    expect(skipped).toEqual([[], ['c1:1'], ['c1:1']]);
   });
 
   it('disables Send with Humid while held, and says why', async () => {

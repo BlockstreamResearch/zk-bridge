@@ -15,6 +15,7 @@ const LBTC = hexToBytes(LIQUID_TESTNET_LBTC);
 const ASSET = displayHex(LBTC);
 const MAX_MONEY = 2_100_000_000_000_000n;
 const MAX_COINS = 256;
+const MAX_ADDRESS_COINS = 10_000;
 const MAX_CHECKS = 32;
 const MAX_TX_HEX = 8_000_000;
 export const MAX_FEE_SATS = 50_000n;
@@ -23,7 +24,20 @@ export const MAX_FEE_SATS = 50_000n;
 // provider object. The caller must persist uncertain sends across page reloads.
 const reserved = new Set();
 const active = new WeakSet();
+const inFlight = new Set();
 const outpoint = (coin) => `${coin.txid}:${coin.vout}`;
+
+/** Clear only preparation holds that the caller has explicitly reviewed with
+ * the user and checked against current chain data. This never sends anything.
+ * An active request cannot be released. The caller also owns persisted holds.
+ */
+export function releaseFeePreparationInputs(points) {
+  if (!Array.isArray(points) || points.length > MAX_COINS
+    || points.some((point) => typeof point !== 'string' || !/^[0-9a-f]{64}:(0|[1-9][0-9]{0,9})$/.test(point)
+      || Number(point.slice(65)) > 0x3fffffff)) throw new Error('Invalid fee preparation reservations.');
+  if (points.some((point) => inFlight.has(point))) throw new Error('A fee preparation is still open in Humid.');
+  for (const point of points) reserved.delete(point);
+}
 
 function amount(value, name, min, max) {
   if (typeof value !== 'bigint' || value < min || value > max) {
@@ -34,7 +48,8 @@ function amount(value, name, min, max) {
 
 function destination(address) {
   if (typeof address !== 'string' || address.length > 100) throw new Error('Enter a Humid unconfidential testnet address.');
-  return humidAddress(address);
+  try { return humidAddress(address); }
+  catch { throw new Error('Enter a valid Humid unconfidential testnet address.'); }
 }
 
 function validateOutpoint(coin) {
@@ -44,8 +59,8 @@ function validateOutpoint(coin) {
   }
 }
 
-function coinList(coins) {
-  if (!Array.isArray(coins) || coins.length > MAX_COINS) throw new Error(`Expected at most ${MAX_COINS} wallet coins.`);
+function coinList(coins, limit = MAX_COINS) {
+  if (!Array.isArray(coins) || coins.length > limit) throw new Error(`Expected at most ${limit} coins.`);
   const seen = new Set();
   for (const coin of coins) {
     validateOutpoint(coin);
@@ -83,13 +98,14 @@ const compare = (a, b) => a.sats === b.sats ? outpoint(a).localeCompare(outpoint
 /** Confirmed, unspent explicit tL-BTC at the supplied address, smallest first.
  * Raw parent bytes verify amounts and scripts; confirmation/unspent state relies
  * on Esplora and must be checked again immediately before the eventual spend.
+ * Checks the smallest 32 candidates from at most 10,000 listed outputs.
  */
 export async function discoverFeeCoins({ esplora, address, minSats = MIN_CHANGE_SATS, maxSats = MAX_FEE_SATS, skip = new Set() }) {
   const target = destination(address);
   amount(minSats, 'Minimum fee', 1n, MAX_FEE_SATS);
   amount(maxSats, 'Maximum fee', minSats, MAX_FEE_SATS);
   await network(esplora);
-  const coins = coinList(await esplora.addressUtxos(target.address)).filter((coin) => coin.asset === ASSET
+  const coins = coinList(await esplora.addressUtxos(target.address), MAX_ADDRESS_COINS).filter((coin) => coin.asset === ASSET
     && coin.status?.confirmed === true && !skip.has(outpoint(coin)) && !reserved.has(outpoint(coin)));
   const candidates = [];
   for (const coin of coins) {
@@ -97,9 +113,8 @@ export async function discoverFeeCoins({ esplora, address, minSats = MIN_CHANGE_
     const sats = BigInt(coin.value);
     if (sats >= minSats && sats <= maxSats) candidates.push({ ...coin, sats });
   }
-  if (candidates.length > MAX_CHECKS) throw new Error(`This address has more than ${MAX_CHECKS} matching fee coins.`);
   const found = [];
-  for (const coin of candidates.sort(compare)) {
+  for (const coin of candidates.sort(compare).slice(0, MAX_CHECKS)) {
     const txHex = await esplora.txHex(coin.txid);
     const tx = transaction(txHex, coin.txid);
     const output = tx.outputs[coin.vout];
@@ -216,6 +231,7 @@ export async function prepareFeeWithHumid({ humid, esplora, address, sats, skip 
       throw new Error('The wallet coin is no longer available.');
     }
     reserved.add(outpoint(fee));
+    inFlight.add(outpoint(fee));
     ownsReservation = true;
     progress('Check the fee transfer in Humid, then approve.');
     await onSign(plan.spends);
@@ -237,6 +253,7 @@ export async function prepareFeeWithHumid({ humid, esplora, address, sats, skip 
     if (txid) failure.txid = txid;
     throw failure;
   } finally {
+    if (ownsReservation) for (const point of plan.spends) inFlight.delete(point);
     active.delete(humid);
   }
 }

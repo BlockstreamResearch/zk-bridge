@@ -13,6 +13,7 @@ export interface TxOutput {
 
 export interface ParsedTransaction {
   version: number;
+  inputs: { prevTxid: Uint8Array; n: number }[];
   outputs: TxOutput[];
   /** Internal byte order. */
   txid: Uint8Array;

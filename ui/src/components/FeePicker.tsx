@@ -1,7 +1,8 @@
+import { DEFAULTS } from '@bridge/core/config.js';
 import { useId, useRef, useState } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { message, short } from '../bridge/format';
-import { Button } from './primitives';
+import { Button, ExtLink } from './primitives';
 
 export interface FeeCoin { txid: string; vout: number }
 
@@ -26,6 +27,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
   const working = useRef(false);
   const sats = /^\d+$/.test(amount) ? BigInt(amount) : 0n;
   const valid = sats >= 546n && sats <= 50_000n && address.trim().length > 0;
+  const reservations = c.getFeeReservationStatus();
   const clearChoice = () => {
     setCoins([]);
     setChoice('');
@@ -97,7 +99,26 @@ export function FeePicker({ kind, disabled, onCoin }: {
     }
   }
 
-  return <fieldset className="aside-form fee-picker" disabled={disabled || busy}>
+  async function recover() {
+    if (disabled || working.current || reservations.busy) return;
+    working.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await c.recoverFeeReservations();
+      if (!result) return;
+      clearChoice();
+      setNote(`Cleared ${result.released + result.spent} fee reservation(s). ${result.retained} still need checking.`);
+      if (result.retained === 0) { setHeld(false); setPrepared(null); }
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
+  }
+
+  return <fieldset className="aside-form fee-picker" disabled={disabled || busy || reservations.busy}>
     <legend>Fee coin</legend>
     <div className="field">
       <label htmlFor={`${id}-address`}>Your Humid unconfidential address</label>
@@ -127,6 +148,11 @@ export function FeePicker({ kind, disabled, onCoin }: {
       <label className="check"><input type="checkbox" checked={owned} onChange={(e) => setOwned(e.target.checked)} /> I control this address in Humid.</label>
       <div className="actions"><Button disabled={!valid || !owned || held} onClick={() => void prepare()}>Prepare fee coin</Button></div>
       {held && <p className="help">Check Humid activity before preparing another coin. Use Find fee coins after confirmation.</p>}
+      {prepared && <p className="help"><ExtLink href={`${DEFAULTS.liquidExplorer}/tx/${prepared.txid}`}>View fee transfer</ExtLink></p>}
+      {reservations.pending > 0 && <>
+        <p className="help">An interrupted fee transfer has reserved coins. Check Humid activity before releasing them.</p>
+        <Button disabled={reservations.busy} onClick={() => void recover()}>Review interrupted preparation</Button>
+      </>}
     </details>
     <p className="hint" role="status">{busy ? note || 'Working…' : note}</p>
     <p className="error" role="alert">{error}</p>

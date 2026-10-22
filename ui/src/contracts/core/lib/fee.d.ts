@@ -3,6 +3,11 @@ import type { Humid, HumidFailure } from './humid.js';
 
 export const MAX_FEE_SATS: bigint;
 
+/** Caller must obtain explicit user confirmation and verify current coin status.
+ * Releases module holds only; throws while a matching request is in flight.
+ */
+export function releaseFeePreparationInputs(outpoints: string[]): void;
+
 export interface FeeCoin {
   txid: string;
   vout: number;
