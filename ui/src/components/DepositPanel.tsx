@@ -7,7 +7,7 @@ import { readDeposit } from '../bridge/forms';
 import { short } from '../bridge/format';
 import { JourneyList } from './Journeys';
 import { HumidAddressButton } from './HumidAddressButton';
-import { Button, Field, Hint, Step, TextAreaField } from './primitives';
+import { Button, CopyLine, Field, Hint, Step, TextAreaField } from './primitives';
 
 function ForkProofForm() {
   const c = useController();
@@ -25,9 +25,11 @@ function ForkProofForm() {
   return (
     <details className="aside-form">
       <summary>Reopen with a fork proof</summary>
+      <p className="help">Run from the repository, then paste the JSON below.</p>
+      <CopyLine value="python3 tools/liquid-relay/fork_proof.py build" label="Build a fork proof" />
       <TextAreaField label="Proof JSON" rows={4} value={text} onChange={(e) => setText(e.target.value)} error={error}
         placeholder='{ "proof": { "timestamp": … } }'
-        help={<>Paste the output of <code className="mono">tools/liquid-relay/fork_proof.py build</code>. The page and escrow check its
+        help={<>The page and escrow check its
           Ethereum beacon root, fork and age. Anyone can submit it; sending costs Sepolia gas.</>} />
       <div className="actions">
         <Button onClick={() => void send()} disabled={busy || !text.trim()}>{busy ? 'Checking…' : 'Check and send'}</Button>
