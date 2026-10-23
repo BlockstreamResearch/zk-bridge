@@ -13,6 +13,13 @@
    "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
    "update": "e8002833dda0af68d5d5eeacffd3011eb893ce458cd79da20c2a247ddda8e7d5",
    "store": "lc_stores/11414272.json"
+  },
+  {
+   "head": 11418336,
+   "header": "96dd4e7afc4169c6a41d3488f86fe9c7ea9b977d078ef0bb51451f06330e144a",
+   "committee": "827cc35b6e6fda5f987d7c04634679f14a6bc4a7675ee49b5698a7e161c10545",
+   "update": "45f83569f624f0974477d4fe54e81d5764ef528f2adeb51c01d6ae2716d6cd02",
+   "store": "lc_stores/11418336.json"
   }
  ]
 }
