@@ -190,7 +190,7 @@ export function ClaimPanel({ panelRef, fileRef, claimDraft }: {
       ['Fee', `${plan.claim.fee.sats} tL-BTC sats · entire coin`],
     ]} approval={claimApproval}
     done={(plan, sent) => <>Claim {sendTx(sent.txid)} {sent.where === 'confirmed' ? 'confirmed.' : 'is awaiting confirmation.'}
-      {' '}Recipient: {to(plan)}. Redeem this asset here even if Humid omits it from its balance.</>} />;
+      {' '}Recipient: {to(plan)}. Use Redeem to send the asset back to Sepolia.</>} />;
 }
 
 /** Open the claim builder and focus the deposit number. */

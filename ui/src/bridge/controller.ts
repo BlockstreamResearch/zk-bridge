@@ -13,7 +13,7 @@ import { Esplora, type TxStatus } from '@bridge/core/lib/esplora.js';
 import { EthRpc, checkChain } from '@bridge/core/lib/ethrpc.js';
 import { discoverFeeCoins, prepareFeeWithHumid, releaseFeePreparationInputs } from '@bridge/core/lib/fee.js';
 import { keccak256 } from '@bridge/core/lib/hash.js';
-import { type BurnPlan, type HumidFailure, broadcastMatches, burnWithHumid, findHumid, humidError } from '@bridge/core/lib/humid.js';
+import { type BurnPlan, type HumidFailure, broadcastMatches, burnWithHumid, findHumid, humidError, receiveAddress } from '@bridge/core/lib/humid.js';
 import { checkBootstrap } from '@bridge/core/lib/issuance.js';
 import { burnStatus, redemption, relayBatches } from '@bridge/core/lib/redeem.js';
 import {
@@ -771,6 +771,13 @@ export class BridgeController {
   }
 
   // ---- burning with Humid ----
+
+  /** Read the connected wallet's address. Forms decide whether to replace their current value. */
+  async getHumidAddress() {
+    const humid = await findHumid(this.env.humidWindow());
+    if (!humid) throw new Error(NO_HUMID);
+    return receiveAddress(humid);
+  }
 
   /** The latest deposit claimed to a P2WPKH address in this browser: Humid's kind, so its likely unconfidential address. */
   private prefillHumid() {

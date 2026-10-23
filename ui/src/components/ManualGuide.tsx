@@ -27,7 +27,7 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
         <ol className="steps-form">
           <Step n={1} title="Deposit">
             <p className="help">Use an Ethereum wallet on Sepolia and desktop Humid on Liquid testnet. Humid signing is unavailable on mobile.
-              Deposit to Humid's Receive → Unconfidential address. Keep SepETH for gas.</p>
+              Choose Use Humid address when depositing, or paste its Receive → Unconfidential address. Keep SepETH for gas.</p>
             <p className="help">Get <ExtLink href={LIQUID_FAUCET}>testnet tL-BTC</ExtLink> at Humid's Receive → Confidential address for fees.
               Wait for Ethereum finality after depositing.</p>
             <p className="warn">Your deposit stays locked until proven and claimed. There is no refund.</p>

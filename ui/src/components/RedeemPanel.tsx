@@ -8,6 +8,7 @@ import { readHumid, readPayTo, readRedeem } from '../bridge/forms';
 import { short } from '../bridge/format';
 import { actionable } from '../bridge/journeys';
 import { JourneyList } from './Journeys';
+import { HumidAddressButton } from './HumidAddressButton';
 import { Button, CopyLine, Field, Hint, Linkified, Step } from './primitives';
 
 /** Step 2's Humid route: the page builds the burn as a PSET and Humid signs and broadcasts it after showing it. */
@@ -15,6 +16,7 @@ function HumidBurn() {
   const s = useBridge();
   const c = useController();
   const [touched, setTouched] = useState(false);
+  const [readingAddress, setReadingAddress] = useState(false);
   const t = target(s);
   const h = readHumid(s.redeemForm.humidAddress);
   const can = !!(t && t.units && h.claim);
@@ -26,21 +28,23 @@ function HumidBurn() {
     <section className="wallet-box" aria-labelledby="humid-burn-title">
       <h4 id="humid-burn-title">Burn with Humid</h4>
       <p className="help">Connect Humid on Liquid testnet with your confirmed claim and one confirmed coin of at least {HUMID_FEE.minCoin} tL-BTC
-        at its confidential address. Fee: {HUMID_FEE.sats.toString()} sats ({HUMID_FEE.btc} tL-BTC).</p>
+        for fees. Fee: {HUMID_FEE.sats.toString()} sats ({HUMID_FEE.btc} tL-BTC).</p>
       <details className="aside-form">
         <summary>Review the burn</summary>
         <p className="help">Humid shows the burn as an unblinded <code className="mono">OP_RETURN</code> output with no address.
           Check its amount and script. Unburned bridge units return to your unconfidential address; tL-BTC change returns to Humid.</p>
         <p className="help">Humid may ask to connect, share coins, then sign and broadcast. If the last request times out,
           check the explorer before retrying. A missing reply does not mean nothing was sent.</p>
-        <p className="help">Humid's balance may omit unblinded bridge units. This panel can spend them.</p>
       </details>
       <Field label="Claim's Humid address" placeholder="tex1q…" value={s.redeemForm.humidAddress}
+        disabled={readingAddress || s.humid.busy || !!s.humid.held}
         onChange={(e) => c.setRedeemForm({ humidAddress: e.target.value })} onBlur={() => setTouched(true)}
         error={touched ? h.error : undefined}
-        help="Humid → Receive → Unconfidential. Prefilled from your latest deposit." />
+        help="Use the address that received your claim. Prefilled from your latest deposit." />
+      <HumidAddressButton value={s.redeemForm.humidAddress} disabled={s.humid.busy || !!s.humid.held}
+        onBusyChange={setReadingAddress} onAddress={(address) => c.setRedeemForm({ humidAddress: address })} />
       <div className="actions">
-        <Button variant="primary" disabled={!can || s.humid.busy || !!s.humid.held} onClick={() => void c.sendWithHumid()}>{s.humid.busy ? 'Working…' : 'Send with Humid'}</Button>
+        <Button variant="primary" disabled={!can || readingAddress || s.humid.busy || !!s.humid.held} onClick={() => void c.sendWithHumid()}>{s.humid.busy ? 'Working…' : 'Send with Humid'}</Button>
         <Hint live>{hint}</Hint>
       </div>
       {can && <p className="warn approval">{burnApproval(t!, t!.units!)}</p>}

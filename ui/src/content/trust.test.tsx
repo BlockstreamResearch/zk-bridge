@@ -71,7 +71,7 @@ describe('What you are trusting', () => {
     expect(Object.keys(costs)).toEqual(['deposit', 'sepolia', 'burn', 'prove-claim']);
     expect(costs.deposit).toMatch(/At least 0\.001[\s\S]*gas[\s\S]*unblinded outputs/);
     expect(costs.sepolia).toMatch(/sender pays Sepolia gas/);
-    expect(costs.burn).toMatch(/500 sats[\s\S]*confirmed coin[\s\S]*0\.00001046 tL-BTC[\s\S]*confidential address[\s\S]*546 sats of change/);
+    expect(costs.burn).toMatch(/500 sats[\s\S]*confirmed coin[\s\S]*0\.00001046 tL-BTC[\s\S]*546 sats of change/);
     expect(costs['prove-claim']).toMatch(/tL-BTC for update and claim fees/);
   });
 

@@ -11,6 +11,7 @@ import { burnTarget, views } from '@bridge/core/lib/bridge.js';
 import { bytesToHex, hexToBytes } from '@bridge/core/lib/bytes.js';
 import { parseHeader, txidFromDisplay } from '@bridge/core/lib/elements.js';
 import { keccak256, selector } from '@bridge/core/lib/hash.js';
+import { HUMID_SCOPE, type Humid } from '@bridge/core/lib/humid.js';
 import { EMPTY_CLAIMED_ROOT } from '@bridge/core/lib/update.js';
 import type { BridgeEnv, Eip1193, Journey } from '../bridge/types';
 
@@ -50,8 +51,8 @@ const MANIFEST = {
 export const DEPOSIT_ADDRESS = encodeSegwit('tex', 0, hexToBytes('11'.repeat(20)));
 export const BURN_TXID = 'ab'.repeat(32);
 
-export type Scenario = 'connected' | 'disconnected' | 'no-wallet' | 'no-instance' | 'relay-closed' | 'fork-closed' | 'liquid-down' | 'bad-code' | 'activity';
-export const SCENARIOS: Scenario[] = ['connected', 'disconnected', 'no-wallet', 'no-instance', 'relay-closed', 'fork-closed', 'liquid-down', 'bad-code', 'activity'];
+export type Scenario = 'connected' | 'disconnected' | 'no-wallet' | 'no-instance' | 'relay-closed' | 'fork-closed' | 'liquid-down' | 'bad-code' | 'activity' | 'humid';
+export const SCENARIOS: Scenario[] = ['connected', 'disconnected', 'no-wallet', 'no-instance', 'relay-closed', 'fork-closed', 'liquid-down', 'bad-code', 'activity', 'humid'];
 
 /** One ABI word, and ABI-encoded `bytes`, as an escrow's eth_call answers them. */
 export const word = (n: bigint | number) => '0x' + BigInt(n).toString(16).padStart(64, '0');
@@ -166,7 +167,7 @@ export function fixture(scenario: Scenario = 'connected', options: FixtureOption
 
   const env: BridgeEnv = {
     ethereum: () => (scenario === 'no-wallet' ? null : wallet),
-    humidWindow: () => ({}),
+    humidWindow: () => (scenario === 'humid' ? { humid: addressOnlyHumid() } : {}),
     fetch: fetchImpl,
     storage: {
       getItem: (k) => storage.get(k) ?? null,
@@ -181,6 +182,22 @@ export function fixture(scenario: Scenario = 'connected', options: FixtureOption
     pollMs: 8000,
   };
   return { env, instance: scenario === 'no-instance' ? null : FIXTURE_INSTANCE, calls, fetched, storage };
+}
+
+/** The released getAddress response shape. This fixture never signs or broadcasts. */
+function addressOnlyHumid(): Humid {
+  return {
+    async request({ method, params }) {
+      const scope = { [HUMID_SCOPE]: { methods: ['getAddress'] } };
+      if (method === 'wallet_getSession' || method === 'wallet_createSession') return { sessionScopes: scope };
+      const invoke = params as { scope?: string; request?: { method?: string; params?: { confidential?: boolean; index?: number } } };
+      if (method === 'wallet_invokeMethod' && invoke.scope === HUMID_SCOPE && invoke.request?.method === 'getAddress'
+        && invoke.request.params?.confidential === false && invoke.request.params.index === 0) {
+        return { chainId: HUMID_SCOPE, address: DEPOSIT_ADDRESS, accountIdentifier: 'fixture-account', confidential: false, index: 0 };
+      }
+      throw new Error(`The Humid fixture refuses ${method}. It only reads an address.`);
+    },
+  };
 }
 
 /** Journeys in each state a reader meets: waiting for finality (late), proven-and-waiting, claimed, a burn to relay. */

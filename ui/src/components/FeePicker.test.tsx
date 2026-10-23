@@ -25,11 +25,12 @@ function setup(disabled = false, pending = 0, reservationBusy = false, kind: 'up
   c.setRedeemForm({ humidAddress: DEPOSIT_ADDRESS });
   const find = vi.spyOn(c, 'findFeeCoins').mockResolvedValue([first, second]);
   const prepare = vi.spyOn(c, 'prepareFee').mockResolvedValue(prepared);
+  const readAddress = vi.spyOn(c, 'getHumidAddress').mockResolvedValue(DEPOSIT_ADDRESS);
   vi.spyOn(c, 'getFeeReservationStatus').mockReturnValue({ pending, busy: reservationBusy });
   const recover = vi.spyOn(c, 'recoverFeeReservations').mockResolvedValue({ released: pending, spent: 0, retained: 0 });
   const onCoin = vi.fn();
   render(<BridgeProvider controller={c}><FeePicker kind={kind} disabled={disabled} onCoin={onCoin} /></BridgeProvider>);
-  return { user: userEvent.setup(), find, prepare, recover, onCoin };
+  return { user: userEvent.setup(), find, prepare, recover, onCoin, readAddress };
 }
 
 async function openPreparation(user: ReturnType<typeof userEvent.setup>) {
@@ -38,6 +39,21 @@ async function openPreparation(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('fee picker', () => {
+  it('fills the wallet address without preparing a transfer and clears any old selection and acknowledgement', async () => {
+    const { user, readAddress, prepare, onCoin } = setup();
+    await openPreparation(user);
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: 'Find fee coins' }));
+    await user.selectOptions(await screen.findByLabelText('Confirmed fee coin'), `${first.txid}:0`);
+    await user.click(screen.getByRole('button', { name: 'Use Humid address' }));
+    expect(readAddress).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('Your Humid unconfidential address')).toHaveValue(DEPOSIT_ADDRESS);
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.queryByLabelText('Confirmed fee coin')).not.toBeInTheDocument();
+    expect(onCoin).toHaveBeenLastCalledWith(null);
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it.each([['claim', '2000'], ['update', '2000']] as const)('requires the %s starting fee before discovery or preparation', async (kind, minimum) => {
     const { user, find, prepare } = setup(false, 0, false, kind);
     const button = await openPreparation(user);
@@ -57,7 +73,7 @@ describe('fee picker', () => {
   it('distinguishes the search minimum from the preparation amount and explains wallet visibility', async () => {
     const { user } = setup();
     expect(screen.getByText(/Find lists coins of at least this amount/)).toHaveTextContent('Prepare sends exactly this amount');
-    expect(screen.getByText(/Humid.s balance may omit this unblinded coin/)).toBeInTheDocument();
+    expect(screen.getByText(/Find fee coins checks this address on Liquid/)).toBeInTheDocument();
     await openPreparation(user);
     expect(screen.getByRole('link', { name: /testnet tL-BTC/ })).toHaveAttribute('href', 'https://liquidtestnet.com/faucet');
     expect(screen.getByText(/Use Humid on desktop/)).toBeInTheDocument();

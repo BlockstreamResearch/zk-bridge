@@ -3,6 +3,7 @@ import { useId, useRef, useState } from 'react';
 import { useBridge, useController } from '../bridge/context';
 import { message, short } from '../bridge/format';
 import { LIQUID_FAUCET } from '../content/links';
+import { HumidAddressButton } from './HumidAddressButton';
 import { Button, ExtLink } from './primitives';
 
 export interface FeeCoin { txid: string; vout: number }
@@ -18,6 +19,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
   const [amount, setAmount] = useState('2000');
   const [owned, setOwned] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [readingAddress, setReadingAddress] = useState(false);
   const [held, setHeld] = useState(false);
   const [prepared, setPrepared] = useState<FeeCoin | null>(null);
   const [note, setNote] = useState('');
@@ -122,13 +124,15 @@ export function FeePicker({ kind, disabled, onCoin }: {
     }
   }
 
-  return <fieldset className="aside-form fee-picker" disabled={disabled || busy || reservations.busy}>
+  return <fieldset className="aside-form fee-picker" disabled={disabled || busy || readingAddress || reservations.busy}>
     <legend>Fee coin</legend>
     <div className="field">
       <label htmlFor={`${id}-address`}>Your Humid unconfidential address</label>
       <input id={`${id}-address`} value={address} placeholder="tex1q…" spellCheck={false} autoComplete="off"
         onChange={(e) => { reset(); setAddress(e.target.value); setOwned(false); }} />
     </div>
+    <HumidAddressButton value={address} disabled={disabled || busy || reservations.busy} onBusyChange={setReadingAddress}
+      onAddress={(next) => { reset(); setAddress(next); setOwned(false); }} />
     <div className="field">
       <label htmlFor={`${id}-amount`}>Fee coin amount (tL-BTC sats)</label>
       <input id={`${id}-amount`} inputMode="numeric" value={amount} onChange={(e) => { reset(); setAmount(e.target.value); }} />
@@ -137,7 +141,7 @@ export function FeePicker({ kind, disabled, onCoin }: {
       {!validAmount && <p className="error">Choose {minimum.toLocaleString('en')}–50,000 sats. The build checks the fee against the transaction's size.</p>}
     </div>
     <div className="actions"><Button disabled={!valid} onClick={() => void find()}>Find fee coins</Button></div>
-    <p className="help">Humid's balance may omit this unblinded coin. Find fee coins checks the address directly.</p>
+    <p className="help">Find fee coins checks this address on Liquid.</p>
     {coins.length > 0 && <div className="field">
       <label htmlFor={`${id}-coin`}>Confirmed fee coin</label>
       <select id={`${id}-coin`} value={choice} onChange={(e) => {

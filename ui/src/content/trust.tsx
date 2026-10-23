@@ -157,7 +157,7 @@ export const COSTS: { name: 'deposit' | 'sepolia' | 'burn' | 'prove-claim'; titl
   {
     name: 'burn',
     title: 'Burn',
-    body: `Humid burn fee: ${HUMID_FEE.sats} sats. It needs one confirmed coin of at least ${HUMID_FEE.minCoin} tL-BTC at its confidential address, covering the fee and ${HUMID_FEE.change} sats of change. Its balance omits unblinded bridge units; this page can spend them.`,
+    body: `Humid burn fee: ${HUMID_FEE.sats} sats. It needs one confirmed coin of at least ${HUMID_FEE.minCoin} tL-BTC, covering the fee and ${HUMID_FEE.change} sats of change.`,
   },
   {
     name: 'prove-claim',

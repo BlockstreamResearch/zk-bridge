@@ -6,6 +6,7 @@ import { admission, notReady, ready, relayLag } from '../bridge/derive';
 import { readDeposit } from '../bridge/forms';
 import { short } from '../bridge/format';
 import { JourneyList } from './Journeys';
+import { HumidAddressButton } from './HumidAddressButton';
 import { Button, Field, Hint, Step, TextAreaField } from './primitives';
 
 function ForkProofForm() {
@@ -41,6 +42,7 @@ export function DepositPanel({ onClaim }: { onClaim: () => void }) {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [ack, setAck] = useState(false);
+  const [readingAddress, setReadingAddress] = useState(false);
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
   const touch = (k: string) => setTouched((t) => new Set(t).add(k));
 
@@ -49,7 +51,7 @@ export function DepositPanel({ onClaim }: { onClaim: () => void }) {
   const open = !!adm?.deposit;
   const verified = !!s.bootstrap?.ok;
   const filled = !!(d.script && d.units);
-  const canSend = ready(s) && open && verified && filled && ack && !s.depositBusy;
+  const canSend = ready(s) && open && verified && filled && ack && !s.depositBusy && !readingAddress;
   const showRelay = ready(s) && !!adm?.relayReopens && !!s.liquid;
   const showFork = ready(s) && !!adm?.forkReopens;
   const batches = Math.max(1, Math.ceil(relayLag(s) / 100));
@@ -63,11 +65,14 @@ export function DepositPanel({ onClaim }: { onClaim: () => void }) {
     <ol className="steps-form">
       <Step n={1} title="Receive on Liquid">
         <Field label="Liquid testnet address" placeholder="tex1q… or tex1p…" value={recipient}
-          onChange={(e) => setRecipient(e.target.value)} onBlur={() => touch('recipient')}
+          disabled={readingAddress || s.depositBusy}
+          onChange={(e) => { setRecipient(e.target.value); setAck(false); }} onBlur={() => touch('recipient')}
           error={touched.has('recipient') ? d.errors.recipient : undefined}
           help="Use an unconfidential address you control: tex1q… or tex1p…, or a standard script in hex. The claim amount is public." />
-        <p className="warn">Your wallet must support unblinded outputs. In Humid, use Receive → Unconfidential. Redeem here with Humid,
-          and fund its confidential address with tL-BTC for fees.</p>
+        <HumidAddressButton value={recipient} disabled={s.depositBusy} onBusyChange={setReadingAddress}
+          onAddress={(address) => { setRecipient(address); setAck(false); }} />
+        <p className="help">Humid can supply your address. You can also paste one from Receive → Unconfidential.
+          Keep tL-BTC in Humid for fees.</p>
       </Step>
       <Step n={2} title="Deposit amount">
         <Field label="Amount in ETH" placeholder="0.001" inputMode="decimal" unit="ETH" value={amount}
