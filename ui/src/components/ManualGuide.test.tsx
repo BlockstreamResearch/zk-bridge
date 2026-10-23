@@ -39,6 +39,10 @@ describe('manual bridge guide', () => {
     expect(guide).toHaveTextContent('There is no refund');
     expect(guide).toHaveTextContent('entire selected fee coin');
     expect(guide).toHaveTextContent('Uploading it here does not publish it');
+    expect(guide).toHaveTextContent('Optional: publish the store');
+    expect(within(guide).getByLabelText('Stage generated store')).toHaveTextContent('just stage-generated');
+    expect(within(guide).getByLabelText('Review store files')).toHaveTextContent('instances/fixture-instance/lc_stores');
+    expect(within(guide).getByLabelText('Push store files')).toHaveTextContent('git push https://github.com/BlockstreamResearch/zk-bridge.git HEAD:master');
     expect(guide).toHaveTextContent('recovery may be impossible');
     expect(guide).toHaveTextContent('Burning is irreversible');
     expect(guide).toHaveTextContent('Humid signing is unavailable on mobile');

@@ -1151,6 +1151,7 @@ ol.help li + li {
 }
 .copyline .cli {
   display: block;
+  white-space: pre-wrap;
   padding: 11px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;

@@ -63,11 +63,18 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
             <p className="help">If another claim changes the state first, run <code className="mono">just proof-bundle</code> and reload the file.
               If another update makes the proof stale, check <code className="mono">just status</code> before proving again.</p>
             <details className="aside-form">
-              <summary>Share the store</summary>
-              <p className="help">Share <code className="mono">proof.store.json</code> with the next prover. To publish it, use the built update's
-                Share store section: add the file at its shown path and its entry to <code className="mono">lc_preimages.json</code>,
-                then open a pull request in the <ExtLink href={REPO}>repository</ExtLink>.
-                Maintainers review and publish it. Uploading it here does not publish it.</p>
+              <summary>Optional: publish the store</summary>
+              <p className="help">After the update confirms, stage your local <code className="mono">proof.store.json</code>.
+                This finds its transaction on Liquid and checks the store before copying it into the instance record.</p>
+              <CopyLine label="Stage generated store" value="just stage-generated" />
+              <p className="help">Review the files, then commit them:</p>
+              <CopyLine label="Review store files" value={`git add -- ${instance.record}lc_stores ${instance.record}lc_preimages.json\ngit diff --cached --check\ngit diff --cached`} />
+              <CopyLine label="Commit store files" value={'git commit -m "Publish light-client store"'} />
+              <p className="help">With write access to the project, push to its publication branch:</p>
+              <CopyLine label="Push store files" value={`git push ${REPO}.git HEAD:${PUBLISHED.branch}`} />
+              <p className="help">Otherwise push to your fork and open a pull request in the <ExtLink href={REPO}>repository</ExtLink>.
+                The site serves the store after its next deployment. You can also share the file directly with the next prover.
+                Uploading it here does not publish it.</p>
               <p className="warn">Withholding the store can stall later proofs. Recovery needs matching retained beacon data or saved proof inputs;
                 without either, recovery may be impossible.</p>
             </details>

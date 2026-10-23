@@ -151,7 +151,9 @@ function StoreField({ plan }: { plan: UpdatePlan }) {
     </details>}
     {storeText && <Button onClick={() => downloadStore(storeText)}>Download successor store</Button>}
     {plan.store?.where === 'file' && s.instance && <details className="aside-form">
-      <summary>Share store</summary>
+      <summary>Optional: share store</summary>
+      <p className="help">To publish your locally generated store after this update confirms, follow the
+        {' '}<a href="#guide">guide's optional publication commands</a>.</p>
       <p className="help">Open a pull request in the <ExtLink href={REPO}>repository</ExtLink> with the downloaded store at this path:</p>
       <CopyLine label="Store publication path" value={`${s.instance.record}${plan.store.entry.store}`} />
       <p className="help">Add this entry to the <code className="mono">preimages</code> list in
