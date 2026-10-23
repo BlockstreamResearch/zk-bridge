@@ -52,6 +52,12 @@ export function ManualGuide({ onUpdate, onClaim, onRedeem }: {
             <p className="help">Find your deposit number from Activity. If it is proven, skip to claim. If its store is missing, run
               <code className="mono"> just reconstruct</code>. Once final, run:</p>
             <CopyLine label="Generate proof" value="just inputs execute prove" />
+            <details className="aside-form">
+              <summary>Low on memory?</summary>
+              <p className="help">Run <code className="mono">just inputs execute</code> first, then use this instead of <code className="mono">just prove</code>:</p>
+              <CopyLine label="Generate proof with less memory" value="RUST_LOG=info just prove low-memory" />
+              <p className="help">Fewer workers and smaller batches reduce memory use, but proving takes longer and can still exceed 16 GB RAM.</p>
+            </details>
             <p className="help">This writes <code className="mono">target/takeover/proof.browser.json</code>. Before generating another proof,
               move any existing <code className="mono">proof.json</code> and matching <code className="mono">proof.store.json</code> aside.</p>
           </Step>
