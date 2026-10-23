@@ -31,7 +31,7 @@ import { SIGN_DEADLINE_MS, base64, encodePset, humidError, humidSession, signAnd
  * update of about 59,100 weight units has a relay floor of 1,478 sats; the page offers a 2,000-sat coin.
  */
 export const MAX_FEE_SATS = 50_000n;
-/** The longest PSET, in base64 characters, Humid 1.1.3's signPset accepts (domain/pset/validation.ts). */
+/** The longest PSET, in base64 characters, Humid 1.1.4's signPset accepts (domain/pset/validation.ts). */
 export const HUMID_MAX_PSET = 1_000_000;
 const SIMPLICITY_LEAF = 0xbe; // Elements' tapleaf version for Simplicity
 const FINAL = 0xffffffff;
@@ -716,7 +716,7 @@ export async function sendUpdate({ humid, esplora, plan, progress = () => {}, de
   progress('Checking on Liquid that the update is unsent and its coins unspent…');
   await unsent(esplora, plan.update);
   progress('Approve the connection to this page in Humid, if it asks…');
-  await humidSession(humid);
+  await humidSession(humid, ['signPset']);
   progress('Review the update in Humid, then sign and send…');
   const txid = await signAndBroadcast(humid, plan, deadlineMs);
   if (txid !== plan.txid) throw Object.assign(new Error(`Humid reports sending ${txid}, not the update ${plan.txid}`), { sent: 'maybe' });

@@ -1,10 +1,6 @@
-// Burning a claim with the Humid browser wallet (BlockstreamResearch/humid, read at release 1.1.3, commit c5c8940,
-// with its pinned LWK 693c4fb). A claim pays an explicit output, which Humid's ordinary Send and its coin list skip.
-// Its signPset method (1.1.1 and later) can spend it: given a PSET whose inputs carry their witness UTXOs, Humid adds
-// the key path of each input that is its own, blinds the outputs the PSET marks for blinding, shows every output and
-// the fee, and once the user confirms signs that PSET and broadcasts it. So this page builds the burn from public
-// Liquid data: the claim, found at the unconfidential address it paid, and a tL-BTC coin Humid lists for the fee.
-// Nothing here holds a key. Humid signs only its own inputs, and the escrow reads only the burn output built here.
+// Humid integration, checked against release 1.1.4, commit a6d211d. Its getAddress method supplies an unconfidential
+// receive address; getUTXOs includes explicit and confidential owned coins. The page builds the bridge's OP_RETURN
+// burn from public Liquid data. Humid reviews the outputs, signs its inputs and broadcasts after user approval.
 import { decodeConfidential, decodeSegwit } from './bech32.js';
 import { bigToBytes, concat, equal, hexToBytes } from './bytes.js';
 import { LIQUID_TESTNET_HRP, LIQUID_TESTNET_LBTC, burnOutputs, formatUnits, isStandardRecipient, readBurnScript } from './bridge.js';
@@ -116,8 +112,8 @@ export function base64(bytes) {
 // ---- coins ----
 
 /**
- * The address holding the claim: Humid's unconfidential address, under Receive, then Unconfidential. Humid's wallet
- * is P2WPKH, and it tracks open coins only at that address, its first.
+ * The address holding the claim: a Liquid testnet P2WPKH address controlled by Humid. The caller may paste one or
+ * request address index 0 from the wallet. Existing claims can belong to a different address index or account.
  */
 export function humidAddress(text) {
   const s = text.trim();
@@ -175,7 +171,7 @@ const rawAssetId = (id) => String(id).slice(String(id).lastIndexOf(':') + 1);
 
 /**
  * The tL-BTC coin that pays the fee: the smallest confirmed one in Humid's getUTXOs answer that leaves at least
- * MIN_CHANGE_SATS of change. Humid lists its confidential coins, and at times open ones at its first address. Coins
+ * MIN_CHANGE_SATS of change. Humid 1.1.4 lists both confidential and explicit owned coins. Coins
  * in `skip` ("txid:vout"), which a send from this page may have spent, are passed over: Humid can list them still.
  */
 export function selectFeeCoin(answer, feeSats = FEE_SATS, skip = new Set()) {
@@ -186,7 +182,6 @@ export function selectFeeCoin(answer, feeSats = FEE_SATS, skip = new Set()) {
     .filter((u) => u.sats >= feeSats + MIN_CHANGE_SATS)
     .sort(byAmount('sats'));
   if (!coins.length) {
-    // Humid's coin list can omit open coins, so the fee is best received confidentially.
     throw new Error(`Humid has no confirmed tL-BTC coin of at least ${feeSats + MIN_CHANGE_SATS} sats for the fee. Get testnet L-BTC from `
       + 'the Liquid testnet faucet at Humid\'s confidential address (Receive, then Confidential), wait for it to confirm, and try again');
   }
@@ -294,20 +289,69 @@ export async function findHumid(win, timeoutMs = 3000) {
   return win.humid ?? null;
 }
 
-const canSign = (answer) => !!answer?.sessionScopes?.[HUMID_SCOPE]?.methods?.includes('signPset');
+function sessionMethods(answer) {
+  const methods = answer?.sessionScopes?.[HUMID_SCOPE]?.methods;
+  return Array.isArray(methods) ? methods : [];
+}
 
-/** A session with Humid for Liquid testnet: the current one, or a new one the user approves in Humid. */
-export async function humidSession(humid) {
-  if (canSign(await humid.request({ method: 'wallet_getSession' }))) return;
+/** Request only the needed methods, preserving bridge permissions already granted on Liquid testnet. */
+export async function humidSession(humid, required = ['getUTXOs', 'signPset']) {
+  const existing = sessionMethods(await humid.request({ method: 'wallet_getSession' }));
+  if (required.every((method) => existing.includes(method))) return;
+  // Creating a Humid session replaces the previous session for this origin.
+  const retained = existing.filter((method) => ['getAddress', 'getUTXOs', 'signPset'].includes(method));
+  const methods = [...new Set([...retained, ...required])];
   const answer = await humid.request({
     method: 'wallet_createSession',
-    params: { optionalScopes: { [HUMID_SCOPE]: { methods: ['getUTXOs', 'signPset'], notifications: [] } } },
+    params: { optionalScopes: { [HUMID_SCOPE]: { methods, notifications: [] } } },
   });
-  if (!canSign(answer)) throw new Error('Humid did not connect Liquid testnet with transaction signing; check that Liquid testnet is enabled in Humid, then connect again');
+  if (!required.every((method) => sessionMethods(answer).includes(method))) {
+    if (required.includes('getAddress')) throw new Error('Humid did not allow address access. Use Humid 1.1.4 or later with Liquid testnet enabled, or paste your unconfidential address.');
+    throw new Error('Humid did not allow the required Liquid testnet methods; enable Liquid testnet and allow coin access and signing, then connect again');
+  }
 }
 
 export function humidCall(humid, method, params) {
   return humid.request({ method: 'wallet_invokeMethod', params: { scope: HUMID_SCOPE, request: { method, params } } });
+}
+
+/** Read address 0 after approval, without requesting coin access or signing for a new connection. */
+export async function receiveAddress(humid, deadlineMs = SIGN_DEADLINE_MS) {
+  let timer;
+  let expired = false;
+  const bounded = {
+    request(args) {
+      if (expired) throw new Error('Address request expired');
+      return humid.request(args);
+    },
+  };
+  const read = async () => {
+    await humidSession(bounded, ['getAddress']);
+    const answer = await humidCall(bounded, 'getAddress', { confidential: false, index: 0 });
+    if (answer?.chainId !== HUMID_SCOPE || answer.confidential !== false || answer.index !== 0 || typeof answer.address !== 'string') {
+      throw new Error('Humid returned an unexpected address response. Choose Liquid testnet or paste your unconfidential address.');
+    }
+    return humidAddress(answer.address).address;
+  };
+
+  try {
+    return await Promise.race([
+      read(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          expired = true;
+          reject(new Error('Humid did not return an address. Close any pending wallet prompt, then retry or paste your unconfidential address.'));
+        }, deadlineMs);
+      }),
+    ]);
+  } catch (e) {
+    if (e?.code === -32601) throw new Error('Address access needs Humid 1.1.4 or later. Update Humid or paste your unconfidential address.');
+    if (e?.code === 5100) throw new Error('Humid address access is unavailable. Enable Liquid testnet in Humid 1.1.4 or later, or paste your unconfidential address.');
+    if (e?.code === 4001 || e?.data?.reason === 'user_rejected') throw new Error('Address access was declined or expired. Retry or paste your unconfidential address.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -317,7 +361,7 @@ export function humidCall(humid, method, params) {
  */
 export function humidError(e) {
   const reason = e?.data?.reason;
-  // Humid 1.1.3 answers a prompt left open for 30 seconds exactly as it answers a decline (confirmations/index.ts).
+  // Humid 1.1.4 answers a prompt left open for 30 seconds exactly as it answers a decline (confirmations/index.ts).
   if (reason === 'user_rejected') {
     return 'Humid did not receive approval: the request was declined or expired. Nothing was sent. Reopen the request to try again.';
   }
@@ -338,7 +382,7 @@ export function humidError(e) {
  * Has Humid sign the inputs `signInputs` names of the PSET `pset` (base64) and broadcast it, once the user confirms
  * in Humid, and returns Humid's txid. An error is marked `sent`: 'no' when Humid refused before the user could
  * confirm (declined, or an invalid request), otherwise 'maybe'. One with no reason is 'no' too, with `stage`
- * 'review': in Humid 1.1.3 signPset's execute step, the only one that signs or broadcasts, gives every failure a
+ * 'review': in Humid 1.1.4 signPset's execute step, the only one that signs or broadcasts, gives every failure a
  * reason (signPset.ts), and the transport passes a raw error, such as one from LWK during review, on without any.
  * Humid's page provider has no timeout of its own, so a signing request still unanswered after `deadlineMs` is
  * abandoned as 'maybe': Humid may have broadcast and then lost the reply.

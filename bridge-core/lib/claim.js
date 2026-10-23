@@ -290,7 +290,7 @@ export async function sendClaim({ humid, esplora, plan, progress = () => {}, dea
   progress('Checking on Liquid that the claim is unsent and its coins unspent…');
   await unsent(esplora, plan.claim);
   progress('Approve the connection to this page in Humid, if it asks…');
-  await humidSession(humid);
+  await humidSession(humid, ['signPset']);
   progress('Review the claim in Humid, then sign and send…');
   const txid = await signAndBroadcast(humid, plan, deadlineMs);
   if (txid !== plan.txid) {

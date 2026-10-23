@@ -16,9 +16,11 @@ export interface HumidFailure extends Error {
 
 export const FEE_SATS: bigint;
 export const MIN_CHANGE_SATS: bigint;
+export const HUMID_SCOPE: string;
 
 export function humidAddress(text: string): { address: string; script: Uint8Array };
 export function findHumid(win: { humid?: Humid }, timeoutMs?: number): Promise<Humid | null>;
+export function receiveAddress(humid: Humid, deadlineMs?: number): Promise<string>;
 export function humidError(e: unknown): string;
 
 export interface BurnPlan {
