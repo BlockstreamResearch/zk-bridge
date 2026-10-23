@@ -179,6 +179,13 @@ not have to be claimed first.
 The proof bundle includes the successor store. Keep and share it, or publish
 `lc_stores/<head>.json` and its `lc_preimages.json` entry for the next prover.
 Publication is optional for Humid; uploading a bundle here does not publish it.
+After the browser-built update confirms, run `just stage-generated` from the same
+work directory. It checks `proof.store.json` against the confirmed Liquid state,
+finds the update transaction ID and stages both publication files. It ignores any
+old `update.hex`. Review the instance's `lc_stores/` and `lc_preimages.json` changes,
+then commit and push them, or open a pull request. The site serves them after its
+next deployment. Do not run `stage-store unsigned` for this browser-built route;
+that command expects a matching transaction built by `update-unsigned`.
 Without the store, another prover needs retained beacon data or saved proof inputs
 to reconstruct it. Recovery may fail if those sources are unavailable. The page
 checks the store's declared head and roots; the prover recomputes its CBOR roots.

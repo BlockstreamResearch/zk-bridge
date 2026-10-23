@@ -304,6 +304,7 @@ _prelude := '''
       echo "proof accepted: proves through Sepolia block $proof_block"
       echo "upload $BRIDGE_WORK/proof.browser.json in the website update panel"
       echo "if claims change the state before upload, run just proof-bundle again; this reuses the proof"
+      echo "optional, after the browser-built update confirms: just stage-generated to prepare its store for publication"
     }
     check_inputs() {  # refuse inputs.cbor unless it starts from the recovered state and reads this escrow's slot 0
       need "$BRIDGE_WORK/inputs.cbor" "run: just inputs"
@@ -389,7 +390,7 @@ _prelude := '''
     updates = [txid for txid, kind in r["chain"] if kind == "update"]
     print(f"recovered head {s['head']}, {len(s['claimed'])} claimed deposit(s); live state {r['outpoint']}")
     if store and r["hint"] == rebuilt:
-        print(f"store: {store}, rebuilt by just reconstruct and hashing to the live lc; not published (just stage-recovered)")
+        print(f"store: {store}, local copy hashing to the live lc; publication has not been checked")
     elif store:
         print(f"store: {store}")
     elif r["complete"]:
@@ -399,6 +400,25 @@ _prelude := '''
         print(f"store: none published for head {s['head']}{reached}")
         print("claims work from this record; before an update, run: just reconstruct")
     PY
+    }
+    stage_live_store() {  # stage_live_store <store> <report stem>; recover_state must have checked this store
+      local store=$1 report=$2 lc
+      need "$store" "keep the matching generated or reconstructed store"
+      need "$BRIDGE_HOST_BIN" "run: just prover"
+      lc=$(jget "$BRIDGE_WORK/state.json" lc)
+      "$BRIDGE_HOST_BIN" check-store "$store" --lc "$lc" > "$BRIDGE_WORK/check-store.json" \
+        || die "$store does not match the confirmed live state; wait for your update to confirm or select its matching store. Keep your proof files"
+      rm -f "$report.json"
+      if ! python3 "$ASSEMBLE_PY" stage-recovered --report "$report.json" \
+          --instance "$BRIDGE_INSTANCE/instance.json" --recovered "$BRIDGE_WORK/recover.json" --store "$store" \
+          > "$report.log"; then
+        gate "$report.json"
+        die "store staging refused ($report.json); nothing was staged"
+      fi
+      echo "staged $(jget "$report.json" result store) and its lc_preimages.json entry, naming update" \
+        "$(jget "$report.json" result entry update)"
+      RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test bridge-core/test/lc-store.test.js
+      echo "next: review git diff, then commit and push both files; the site serves them after its next deployment"
     }
     meta() {  # meta <file> key=value...: the sidecar that preflight and broadcast read
       python3 -c '
@@ -937,8 +957,9 @@ stage-store mode="signed":
     # The outpoint input 0 spends and the script of output 0, as sg16-testnet input and output read them.
     spends, creates = sys.argv[5], sys.argv[6]
     norm = lambda h: str(h).lower().removeprefix("0x")
-    other = (f"; it was built for another BRIDGE_INSTANCE or another update. Nothing was staged into {inst}. "
-             "Give each instance its own BRIDGE_WORK and rebuild from just recover")
+    other = (f". These files do not describe one update for {inst}; nothing was staged. Keep proof.json and proof.store.json. "
+             "For a browser-built update, use just stage-generated after it confirms. For a CLI-built update, "
+             "check the instance and rebuild the transaction with just update or just update-unsigned <fee txid> <vout>")
     if Path(meta["new_state"]).resolve() != (work / "update.new_state.json").resolve():
         sys.exit(f"{sys.argv[4]} names new state {meta['new_state']}, not {work / 'update.new_state.json'}{other}")
     new = json.loads((work / "update.new_state.json").read_text())
@@ -957,7 +978,8 @@ stage-store mode="signed":
         g.need("update.new_state.json recomputes its lc and state hash", rec == new, {k: new.get(k) for k in rec if rec[k] != new.get(k)})
         g.need("the proof's successor = update.new_state.json: head, lc, accumulator, execution root and block",
                (o["new_head"], o["new_lc"].hex(), o["slot_value"].hex(), o["exec_root"].hex(), o["exec_block"])
-               == (new["head"], new["lc"], new["acc"], new["exec_root"], new["exec_block"]))
+               == (new["head"], new["lc"], new["acc"], new["exec_root"], new["exec_block"]),
+               f"proof head {o['new_head']}, block {o['exec_block']}; update head {new['head']}, block {new['exec_block']}")
         tree = assemble.tool_ok(g, "state tree of update.new_state.json under this instance's manifest", assemble.TX_TOOL,
                                 "tree", inst / "manifest.json", work / "update.new_state.json")
         g.need("the tree's state hash = update.new_state.json", tree["state_hash"] == new["state_hash"], tree["state_hash"])
@@ -1006,22 +1028,20 @@ stage-recovered: recover
     #!/usr/bin/env bash
     {{ _prelude }}
     need "$REBUILT_STORE" "run: just reconstruct"
-    need "$BRIDGE_HOST_BIN" "run: just prover"
     target
-    lc=$(jget "$BRIDGE_WORK/state.json" lc)
-    "$BRIDGE_HOST_BIN" check-store "$REBUILT_STORE" --lc "$lc" > "$BRIDGE_WORK/check-store.json" \
-      || die "$REBUILT_STORE does not hash to the live lc $lc; run just reconstruct again"
-    rm -f "$BRIDGE_WORK/stage-recovered.json"
-    if ! python3 "$ASSEMBLE_PY" stage-recovered --report "$BRIDGE_WORK/stage-recovered.json" \
-        --instance "$BRIDGE_INSTANCE/instance.json" --recovered "$BRIDGE_WORK/recover.json" --store "$REBUILT_STORE" \
-        > "$BRIDGE_WORK/stage-recovered.log"; then
-      gate "$BRIDGE_WORK/stage-recovered.json"
-      die "assemble.py stage-recovered refused ($BRIDGE_WORK/stage-recovered.json); nothing was staged"
-    fi
-    echo "staged $(jget "$BRIDGE_WORK/stage-recovered.json" result store) and its lc_preimages.json entry, naming update" \
-      "$(jget "$BRIDGE_WORK/stage-recovered.json" result entry update)"
-    RECORD="$(basename "$BRIDGE_INSTANCE")" RECORD_DIR="$BRIDGE_INSTANCE" node --test bridge-core/test/lc-store.test.js
-    echo "next: review git diff, then publish both files with the instance record"
+    stage_live_store "$REBUILT_STORE" "$BRIDGE_WORK/stage-recovered"
+
+# Stage the locally generated store after its browser-built update confirms. Finds the update txid on Liquid.
+[group('publish')]
+stage-generated: chain
+    #!/usr/bin/env bash
+    {{ _prelude }}
+    need "$BRIDGE_WORK/proof.store.json" "copy the matching generated store here"
+    # Use this exact local store, even if the instance already publishes a copy. No old update.hex is read.
+    BRIDGE_HINT=""
+    REBUILT_STORE="$BRIDGE_WORK/proof.store.json"
+    recover_state
+    stage_live_store "$REBUILT_STORE" "$BRIDGE_WORK/stage-generated"
 
 # Build, sign and verify the claim of any proven, unclaimed deposit from freshly recovered state. Sends nothing.
 [group('sign')]

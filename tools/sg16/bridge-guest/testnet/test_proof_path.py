@@ -501,7 +501,8 @@ if url.startswith(esplora):
         print(chain[parts[1]]['hex'])
     elif len(parts) == 4 and parts[0] == 'tx' and parts[2] == 'outspend' and parts[3] == '0':
         by = chain[parts[1]]['spent_by']
-        print(json.dumps({'spent': True, 'txid': by, 'vin': 0, 'status': {'confirmed': True}} if by else {'spent': False}))
+        print(json.dumps({'spent': True, 'txid': by, 'vin': 0,
+                          'status': {'confirmed': chain[parts[1]].get('confirmed', True)}} if by else {'spent': False}))
     else:
         sys.exit(f'fake curl: unexpected Esplora {url}')
 elif url == beacon + 'eth/v1/beacon/light_client/finality_update':
@@ -537,6 +538,8 @@ if args[0] == 'reconstruct':
         out.write(open(os.environ['FAKE_STORE']).read())
     print(json.dumps({'matches_state_lc': True}))
 elif args[0] == 'check-store':
+    if os.environ.get('FAKE_STORE_CORRUPT'):
+        sys.exit('Error: invalid store CBOR')
     if norm(json.load(open(args[1]))['lc']) != norm(flag('--lc')):
         sys.exit('Error: the store file hashes to another lc')
     print(json.dumps({'matches_state_lc': True}))
@@ -714,6 +717,68 @@ class WithheldStore(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('nothing to reconstruct', r.stdout)
         self.assertNotEqual(self.just('stage-recovered').returncode, 0)
+
+    def generated_store(self):
+        self.work.mkdir()
+        store = self.work / 'proof.store.json'
+        shutil.copyfile(self.tmp / 'store.json', store)
+        (self.work / 'proof.json').write_text('keep this costly proof')
+        (self.work / 'update.hex').write_text('stale transaction from another update')
+        return store
+
+    def test_generated_store_uses_chain_txid_and_ignores_old_transaction(self):
+        store = self.generated_store()
+        original = (self.record / 'lc_preimages.json').read_bytes()
+        r = self.just('stage-generated')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        staged = self.record / f'lc_stores/{WITHHELD_HEAD}.json'
+        self.assertEqual(staged.read_bytes(), store.read_bytes())
+        pre = json.loads((self.record / 'lc_preimages.json').read_text())['preimages']
+        entry = [e for e in pre if e['head'] == WITHHELD_HEAD]
+        self.assertEqual(len(entry), 1)
+        self.assertEqual(entry[0]['update'], self.update)
+        self.assertEqual([e for e in pre if e['head'] != WITHHELD_HEAD], json.loads(original)['preimages'])
+        self.assertEqual(self.host_calls('run'), [])
+        self.assertEqual(self.host_calls('reconstruct'), [])
+        self.assertEqual((self.work / 'proof.json').read_text(), 'keep this costly proof')
+        self.assertEqual((self.work / 'update.hex').read_text(), 'stale transaction from another update')
+        published = (self.record / 'lc_preimages.json').read_bytes()
+        self.assertEqual(self.just('stage-generated').returncode, 0)
+        self.assertEqual((self.record / 'lc_preimages.json').read_bytes(), published)
+
+    def test_generated_store_must_match_confirmed_chain_and_pass_cbor_check(self):
+        store = self.generated_store()
+        original = store.read_bytes()
+        pre = (self.record / 'lc_preimages.json').read_bytes()
+        wrong = json.loads(original)
+        wrong['lc'] = '0x' + '99' * 32
+        store.write_text(json.dumps(wrong))
+        r = self.just('stage-generated')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('the store file is at the recovered head and hashes to the recovered lc', r.stderr)
+        self.assertFalse((self.record / f'lc_stores/{WITHHELD_HEAD}.json').exists())
+        self.assertEqual((self.record / 'lc_preimages.json').read_bytes(), pre)
+
+        store.write_bytes(original)
+        r = self.just('stage-generated', FAKE_STORE_CORRUPT='1')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('invalid store CBOR', r.stderr)
+        self.assertFalse((self.record / f'lc_stores/{WITHHELD_HEAD}.json').exists())
+        self.assertEqual((self.record / 'lc_preimages.json').read_bytes(), pre)
+        self.assertEqual((self.work / 'proof.json').read_text(), 'keep this costly proof')
+
+    def test_generated_store_waits_for_update_confirmation(self):
+        self.generated_store()
+        chain = json.loads((self.tmp / 'chain.json').read_text())
+        chain[self.boot]['confirmed'] = False
+        (self.tmp / 'chain.json').write_text(json.dumps(chain))
+        pre = (self.record / 'lc_preimages.json').read_bytes()
+        r = self.just('stage-generated')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('is unconfirmed', r.stderr)
+        self.assertFalse((self.record / f'lc_stores/{WITHHELD_HEAD}.json').exists())
+        self.assertEqual((self.record / 'lc_preimages.json').read_bytes(), pre)
+        self.assertEqual(self.host_calls('run'), [])
 
 
 if __name__ == '__main__':
